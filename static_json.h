@@ -47,23 +47,32 @@ class json_base_t {
 public:
 	typedef T child_t;
 	void __add_field(const char* name, const data_imple_t<T>* field) {
-		if (fields_.find(name) == fields_.end()) {
+		if (field && fields_.find(name) == fields_.end()) {
 			fields_[name] = field;
 		}
 		else {
 			inited_ = true;
 		}
 	}
+	json_base_t<T>& operator=(const json_base_t<T>& other) noexcept{
+		return *this;
+	}
+	json_base_t() {
+		//instance_; //模板类需要显示激活
+		//fields_;
+	}
+	json_base_t(const json_base_t<T>& other) {
+	}
 protected:
 private:
-	bool is_null(const char* begin, size_t len) {
+	static bool is_null(const char* begin, size_t len) {
 		if (len == 4 && begin[0] == 'n' && begin[1] == 'u' && begin[2] == 'l' && begin[3] == 'l') {
 			return true;
 		}
 		else
 			return false;
 	}
-	char is_bool(const char* begin, size_t len) {
+	static bool get_bool(const char* begin, size_t len) {
 		if (len == 4 && begin[0] == 't' && begin[1] == 'r' && begin[2] == 'u' && begin[3] == 'e') {
 			return true;
 		}
@@ -71,7 +80,7 @@ private:
 			return false;
 		}
 		else
-			return -1;
+			return false;
 	}
 
 	//check whether the string can pass the conversion
@@ -86,7 +95,7 @@ private:
 	}
 
 	//escape the controll char like \t \r \f etc and whitespace
-	bool inline is_ctr_or_space_char(char ch) {
+	static bool inline is_ctr_or_space_char(char ch) {
 		return (ch == ' ' || (ch >= 0x00 && ch <= 0x1F) || ch == 0x7F);
 	}
 protected:
@@ -146,13 +155,7 @@ protected:
 	}
 
 	inline static size_t unserialize(bool *data, const char* begin, size_t len) {
-		string val(begin, len);
-		if (val == "true")
-			*data = true;
-		else if (val == "false")
-			*data = false;
-		else
-			*data = stoi(val);
+		*data = get_bool(begin, len);
 		return 0;
 	}
 	inline static size_t unserialize(int32_t *data, const char* begin, size_t len) {
@@ -223,7 +226,10 @@ protected:
 		return 0;
 	}
 	inline static size_t unserialize(string *data, const char* begin, size_t len) {
-		data->assign(begin + 1, len - 2);
+		if (*begin == json_key_symbol::str)
+			data->assign(begin + 1, len - 2);
+		else if(!is_null(begin, len))
+			data->assign(begin, len);
 		return 0;
 	}
 	template<class V>
@@ -237,29 +243,30 @@ protected:
 	// case 3:[{xxx},...]
 	// case 4:[[xxx],...]
 	template<class V>
-	bool unserialize(vector<V> *data, const char* begin, size_t len) {
+	static size_t unserialize(vector<V> *data, const char* begin, size_t len) {
+		const char* next = begin;
+		const char* end = begin + len;
 		const char* val_start = nullptr;
 
-		while (ch) {
+		while (char ch = get_next(&next,end)) {
 			if (ch == json_key_symbol::array_end) {
 				if (val_start) {
 					V value;
 					unserialize(&value, val_start, next - val_start);
 					(*data).emplace_back(value);
 				}
-				return true;
+				return next - begin;
 			}
 			else if (ch == json_key_symbol::array_begin) {
-				get_next();
 				V value;
-				check_result(unserialize(&value, next, end - next));
+				next += unserialize(&value, next, end - next);
 				(*data).emplace_back(value);
 				val_start = nullptr;
 			}  
 			//pares string value
 			else if (ch == json_key_symbol::str) {
-				val_start = next;
-				check_result(parse_str());
+				val_start = next - 1;
+				check_result(parse_str(&next,end));
 				V value;
 				unserialize(&value, val_start, next - val_start);
 				(*data).emplace_back(value);
@@ -275,29 +282,25 @@ protected:
 			else if (ch == json_key_symbol::object_begin) {
 				val_start = next;
 				V value;
-				get_next(unserialize(&value, next, end - next));
+				next += (unserialize(&value, next, end - next));
 				(*data).emplace_back(value);
 				val_start = nullptr;
 			}
 			else if (!val_start && (!is_ctr_or_space_char(ch) && ch != json_key_symbol::next_key_value && ch != json_key_symbol::object_end)) {
-				val_start = next;
+				val_start = next - 1;
 			}
-			get_next();
 		}
-		return false;
+		return 0;
 	}
 
 	// parse the string in quotes like "xxx",return the index of the last quote
 	// case: "xxx"
-	bool parse_str() {
-		bool start = false;
-		while (ch) {
+	static bool parse_str(const char** begin, const char* end) {
+		while (char ch = get_next(begin, end)) {
 			if (ch == json_key_symbol::str) {
-				if (get_pre() !='\\' && start)
+				if (*(*begin-2) !='\\')
 					return true;
-				start = true;
 			}
-			get_next();
 		}
 		return true;
 	}
@@ -306,43 +309,30 @@ protected:
 	// case 2:"xxx":"xxx"
 	// case 3:"xxx":{xxx}
 	// case 4:"xxx":[xxx]
-	bool parse_key_value() {
-		const char* key_start = nullptr;
-		const char* key_end = nullptr;
+	bool parse_key_value(const char** begin, const char* end) {
+		const char* key_start = *begin;
+		parse_str(begin, end);
+		const char* key_end = *begin;
+		string key(key_start,*begin - 1);
 		const char* val_start = nullptr;
 
 		bool wait_val = false;
-		while (ch) {
-			if (ch == json_key_symbol::str) {
-				//ready to pares key
-				if (!key_start) {
-					key_start = next;
-					check_result(parse_str());
-					key_end = next;
-				}
-				else {
-					//case 2:"xxx" : "xxx"
-					if (wait_val) {
-						val_start = next;
-						check_result(parse_str());
+		while (char ch = get_next(begin, end)) {
+			if (wait_val && ch == json_key_symbol::str) {
+				val_start = *begin - 1;
+				check_result(parse_str(begin, end));
 
-						string key(key_start + 1, key_end);
-						unserialize(key, val_start, next - val_start + 1);
-						return true;
-					}
-				}
+				unserialize(key, val_start, *begin - val_start);
+				return true;
 			}
 			// case 4:"xxx":[xxx]
 			else if (wait_val && ch == json_key_symbol::array_begin) {
-				get_next();
-				string key(key_start + 1, key_end);
-				return unserialize(key, next, next - end);
-				//return parse_array(key);
+				*begin += unserialize(key, *begin, end - *begin);
+				return true;
 			}
 			// case 3:"xxx":{xxx}
 			else if (wait_val && ch == json_key_symbol::object_begin) {
-				string key(key_start + 1, key_end);
-				get_next(unserialize(key, next, end - next));
+				*begin += unserialize(key, *begin, end - *begin);
 				return true;
 			}
 			// ready to pares value
@@ -351,15 +341,13 @@ protected:
 			}
 			// get the first index of the value(escape white space and controll char)
 			else if (wait_val && !val_start && !is_ctr_or_space_char(ch)) {
-				val_start = next;
+				val_start = *begin - 1;
 			}
 			// case 1:"xxx" : xxx
 			else if (val_start && (is_ctr_or_space_char(ch) || ch == json_key_symbol::next_key_value || ch == json_key_symbol::object_end)) {
-				string key(key_start + 1, key_end);
-				unserialize(key, val_start, next - val_start);
+				unserialize(key, val_start, *begin - val_start - 1);
 				return true;
 			}
-			get_next();
 		}
 		return false;
 	}
@@ -368,48 +356,42 @@ protected:
 	// case 1:{"xxx":{xxx}}
 	// return |      |len|| 
 	// return |----len----|
-	bool parse_object() {
+	bool parse_object(const char** begin,const char* end) {
 		// '{' must appear befor '}',set this as flag
 		bool start = false;
-		while (ch) {
+		while (char ch = get_next(begin,end)) {
 			// obj begin
 			if (ch == json_key_symbol::object_begin) {
 				if (start) {
-					check_result(parse_object());
+					check_result(parse_object(begin,end));
 				}
 				else
 					start = true;
 			}
 			else if (ch == json_key_symbol::object_end) {
-				if (!start) {
-					cout << begin << ":error" << endl;
-					return false;
-				}
+				//if (!start) {
+				//	cout << begin << ":error" << endl;
+				//	return false;
+				//}
 				return true;
 			}
 			else if (ch == json_key_symbol::str) {
-				check_result(parse_key_value());
+				check_result(parse_key_value(begin,end));
 			}
 			else if ( !is_ctr_or_space_char(ch)) {
-				if (!start) {
-					return false;
-				}
+				//if (!start) {
+				//	return false;
+				//}
 			}
-			get_next();
 		}
 		return false;
 	}
 
-	void inline get_next(size_t step = 1) {
-		next += step;
-		if (end && end < next)
-			ch = '\0';
+	static char inline get_next(const char** begin,const char* end) {
+		if (end && end < (*begin + 1))
+			return '\0';
 		else
-			ch = *next;
-	}
-
-	char inline get_pre() {
-		return *(next - 1);
+			return *(*begin)++;
 	}
 
 	size_t unserialize(string &key, const char* val, size_t len) {
@@ -421,15 +403,13 @@ protected:
 	}
 public:
 	size_t unserialize(const char* json, size_t size = 0) {
-		begin = json;
+		const char* begin = json;
+		const char* end = nullptr;
 		if (size > 0)
-			end = json + size;
-		else
-			end = nullptr;
-		next = json;
-		ch = *begin;
-		check_result(parse_object());
-		return next - begin;
+			end = begin + size;
+		parse_object(&begin, end);
+
+		return begin - json;
 	}
 	void serialize(string &res) {
 		res += "{";
@@ -443,10 +423,6 @@ public:
 		res += "}";
 	}
 private:
-	const char* begin;
-	const char* end;
-	const char* next;
-	char ch;
 	static std::unordered_map<string, const data_imple_t<T>*> fields_;
 protected:
 	static T instance_;
