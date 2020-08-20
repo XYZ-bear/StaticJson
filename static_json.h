@@ -163,42 +163,54 @@ protected:
 		*data = strtol(begin, &endptr, 10);
 		if (endptr != begin + len)
 			*data = strtof(begin, &endptr);
-		return 0;
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(int8_t *data, const char* begin, size_t len) {
 		char* endptr;
 		*data = strtol(begin, &endptr, 10);
 		if (endptr != begin + len)
 			*data = strtof(begin, &endptr);
-		return 0;
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(int16_t *data, const char* begin, size_t len) {
 		char* endptr;
 		*data = strtol(begin, &endptr, 10);
 		if (endptr != begin + len)
 			*data = strtof(begin, &endptr);
-		return 0;
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(int64_t *data, const char* begin, size_t len) {
 		char* endptr;
 		*data = strtoll(begin, &endptr, 10);
 		if (endptr != begin + len)
 			*data = strtod(begin, &endptr);
-		return 0;
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(uint32_t *data, const char* begin, size_t len) {
 		char* endptr;
 		*data = strtoul(begin, &endptr, 10);
 		if (endptr != begin + len)
 			*data = strtod(begin, &endptr);
-		return 0;
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(uint8_t *data, const char* begin, size_t len) {
 		char* endptr;
 		*data = strtoul(begin, &endptr, 10);
 		if (endptr != begin + len)
 			*data = strtod(begin, &endptr);
-		return 0;
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(uint16_t *data, const char* begin, size_t len) {
 		char* endptr;
@@ -206,7 +218,9 @@ protected:
 		if (endptr != begin + len) {
 			*data = strtod(begin, &endptr);
 		}
-		return 0;
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(uint64_t *data, const char* begin, size_t len) {
 		char* endptr;
@@ -214,23 +228,31 @@ protected:
 		if (endptr != begin + len) {
 			*data = strtod(begin, &endptr);
 		}
-		return 0;
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 
 	inline static size_t unserialize(double *data, const char* begin, size_t len) {
-		*data = strtod(begin, nullptr);
-		return 0;
+		char *endptr;
+		*data = strtod(begin, &endptr);
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(float *data, const char* begin, size_t len) {
-		*data = strtof(begin, nullptr);
-		return 0;
+		char *endptr;
+		*data = strtof(begin, &endptr);
+		if (endptr == begin)
+			return -1;
+		return len;
 	}
 	inline static size_t unserialize(string *data, const char* begin, size_t len) {
 		if (*begin == json_key_symbol::str)
 			data->assign(begin + 1, len - 2);
 		else if(!is_null(begin, len))
 			data->assign(begin, len);
-		return 0;
+		return len;
 	}
 	template<class V>
 	inline static size_t unserialize(json_base_t<V> *data, const char* begin, size_t len) {
@@ -252,15 +274,18 @@ protected:
 			if (ch == json_key_symbol::array_end) {
 				if (val_start) {
 					V value;
-					unserialize(&value, val_start, next - val_start);
-					(*data).emplace_back(value);
+					if (unserialize(&value, val_start, next - val_start) != -1)
+						(*data).emplace_back(value);
 				}
 				return next - begin;
 			}
 			else if (ch == json_key_symbol::array_begin) {
 				V value;
-				next += unserialize(&value, next, end - next);
-				(*data).emplace_back(value);
+				size_t len = unserialize(&value, next, end - next);
+				if(len!=-1){
+					next += len;
+					(*data).emplace_back(value);
+				}
 				val_start = nullptr;
 			}  
 			//pares string value
@@ -268,22 +293,25 @@ protected:
 				val_start = next - 1;
 				check_result(parse_str(&next,end));
 				V value;
-				unserialize(&value, val_start, next - val_start);
-				(*data).emplace_back(value);
+				if (unserialize(&value, val_start, next - val_start) != -1)
+					(*data).emplace_back(value);
 				val_start = nullptr;
 			}
 			//pares value
 			else if (val_start && (is_ctr_or_space_char(ch) || ch == json_key_symbol::next_key_value || ch == json_key_symbol::array_end )) {
 				V value;
-				unserialize(&value, val_start, next - val_start);
-				(*data).emplace_back(value);
+				if (unserialize(&value, val_start, next - val_start) != -1)
+					(*data).emplace_back(value);
 				val_start = nullptr;
 			}
 			else if (ch == json_key_symbol::object_begin) {
 				val_start = next;
 				V value;
-				next += (unserialize(&value, next, end - next));
-				(*data).emplace_back(value);
+				size_t len = unserialize(&value, next, end - next);
+				if (len != -1) {
+					next += len;
+					(*data).emplace_back(value);
+				}
 				val_start = nullptr;
 			}
 			else if (!val_start && (!is_ctr_or_space_char(ch) && ch != json_key_symbol::next_key_value && ch != json_key_symbol::object_end)) {

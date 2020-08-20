@@ -167,16 +167,34 @@ public:
 	string N(c);
 	int64_t N(d);
 	vector<int> N(e);
+	vector<int> N(f);
+	int N(g);
+
+	Json(Test)
+	{
+	public:
+		int N(a);
+	};
+	Test N(h);
+	int N(i);
 };
 
+#include <string>
+#include <iostream>
+
 TEST_CASE("compatibility test") {
+
 	Test6 t;
 
-	t.unserialize(R({ "b":true,"f" : {"a":123},"d":123,"c":123,"e":"123" }));
+	t.unserialize(R({ "b":true,"d" : "123","c" : 123,"e" : "123","f" : [123,"456"],"g" : {},"h":"123","i":123 }));
 	CHECK(t.b == true);
-	CHECK(t.d == 123);
+	CHECK(t.d == 0);
 	CHECK(t.c == "123");
 	CHECK(t.e.size() == 0);
+	CHECK(t.f.size() == 1);
+	CHECK(t.g == 0);
+	CHECK(t.h.a == 0);
+	CHECK(t.i == 123);
 }
 
 Json(Test5)
