@@ -106,6 +106,9 @@ public:
 	int64_t (age);
 	string (gender);
 	class contact_t {
+		contact_t() {
+
+		}
 		string (type);
 		string (number);
 	};
@@ -126,7 +129,7 @@ TEST_CASE("complex test") {
 	//perf_test("table build 1", 1000000, []()->void {
 	//	Complex t;
 
-	///*	t.unserialize(R(
+	//	t.unserialize(R(
 	//		{
 	//			"profile":
 	//	{
@@ -152,7 +155,7 @@ TEST_CASE("complex test") {
 	//				}],
 	//				"marital_status": true
 	//	}
-	//		}));*/
+	//		}));
 	//});
 	//perf_test("table build 1", 1000000, []()->void {
 	//	Complex2 t;
@@ -183,18 +186,38 @@ public:
 #include <iostream>
 
 TEST_CASE("compatibility test") {
-
 	Test6 t;
+
+	//if a value not match the static type,the next value should be paresd.
+	t.unserialize(R({ "f" : {},"g" : 123));
+	CHECK(t.f.size() == 0);
+	CHECK(t.g == 123);
 
 	t.unserialize(R({ "b":true,"d" : "123","c" : 123,"e" : "123","f" : [123,"456"],"g" : {},"h":"123","i":123 }));
 	CHECK(t.b == true);
 	CHECK(t.d == 0);
-	CHECK(t.c == "123");
+	CHECK(t.c == "");
 	CHECK(t.e.size() == 0);
 	CHECK(t.f.size() == 1);
 	CHECK(t.g == 0);
 	CHECK(t.h.a == 0);
 	CHECK(t.i == 123);
+
+	t.unserialize(R({ "b":[ ,"d" : 123}));
+	CHECK(t.b == false);
+	CHECK(t.d == 0);
+
+	t.unserialize(R({ "b":[],"d":123 }));
+	CHECK(t.b == false);
+	CHECK(t.d == 123);
+
+	t.unserialize(R({ "b":"fff","d" : 123 }));
+	CHECK(t.b == false);
+	CHECK(t.d == 123);
+
+	t.unserialize(R({ "b":{},"d" : 123 }));
+	CHECK(t.b == false);
+	CHECK(t.d == 123);
 }
 
 Json(Test5)
@@ -231,6 +254,7 @@ public:
 		string N(b);
 	};
 	vector<Te> N(vec3);
+	vector<vector<Te>> N(vec4);
 };
 
 TEST_CASE("vector test") {
@@ -256,6 +280,19 @@ TEST_CASE("vector test") {
 	CHECK("yes" == t.vec3[0].b);
 	CHECK(456 == t.vec3[1].a);
 	CHECK("no" == t.vec3[1].b);
+
+	t.unserialize(R({ "vec4":[[{"a":123,"b" : "yes"},{ "a":456,"b" : "no" }],[{"a":123,"b" : "yes"},{ "a":456,"b" : "no" }]] }));
+	CHECK(2 == t.vec4.size());
+	CHECK(2 == t.vec4[0].size());
+	CHECK(2 == t.vec4[1].size());
+	CHECK(123 == t.vec4[0][0].a);
+	CHECK("yes" == t.vec4[0][0].b);
+	CHECK(456 == t.vec4[0][1].a);
+	CHECK("no" == t.vec4[0][1].b);
+	CHECK(123 == t.vec4[1][0].a);
+	CHECK("yes" == t.vec4[1][0].b);
+	CHECK(456 == t.vec4[1][1].a);
+	CHECK("no" == t.vec4[1][1].b);
 }
 
 
@@ -321,4 +358,17 @@ TEST_CASE("Scientific counting test") {
 	n.n = 0;
 	n.unserialize(R({ "n":1.04e+2 }));
 	CHECK(n.n == 104);
+
+
+	n.n = 0;
+	n.unserialize(R({ "n":1.0sfs }));
+	CHECK(n.n == 1);
+
+	n.n = 0;
+	n.unserialize(R({ "n":asf1.0sfs }));
+	CHECK(n.n == 0);
+
+	n.n = 0;
+	n.unserialize(R({ "n":null }));
+	CHECK(n.n == 0);
 }
