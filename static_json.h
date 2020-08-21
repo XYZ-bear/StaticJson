@@ -337,14 +337,17 @@ protected:
 	// case 4:[[xxx],...]
 	template<class V>
 	static bool unserialize(vector<V> *data, const char** begin, const char* end) {
+		// skip the white space and control char
 		skip_space(begin, end);
 
+		//check the value type
 		if (**begin != json_key_symbol::array_begin) {
 			check_skip(begin, end);
 			return false;
 		}
 
 		while (char ch = get_cur_and_next(begin, end)) {
+			// '[' and ',' as the falg of value begin
 			if (ch == json_key_symbol::array_begin || ch == json_key_symbol::next_key_value) {
 				skip_space(begin, end);
 				V value;
@@ -512,9 +515,9 @@ public:
 	static bool inited_;
 };
 template<class T>
-std::unordered_map<string, const data_imple_t<T>*> json_base_t<T>::fields_;
-template<class T>
 T json_base_t<T>::instance_;
+template<class T>
+std::unordered_map<string, const data_imple_t<T>*> json_base_t<T>::fields_;
 template<class T>
 bool json_base_t<T>::inited_ = false;
 

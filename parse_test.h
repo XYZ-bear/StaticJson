@@ -218,6 +218,9 @@ TEST_CASE("compatibility test") {
 	t.unserialize(R({ "b":{},"d" : 123 }));
 	CHECK(t.b == false);
 	CHECK(t.d == 123);
+
+	t.unserialize(R({ "b":tr }));
+	CHECK(t.b == false);
 }
 
 Json(Test5)
