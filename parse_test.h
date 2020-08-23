@@ -73,27 +73,105 @@ TEST_CASE("perf test") {
 Json(Complex)
 {
 public:
-	Json(profile_t) {
-	public:
-	string N(lastName);
-	vector<vector<int>> N(firstName);
-	int64_t N(age);
-	string N(gender);
-	Json(contact_t) {
-		string N(type);
-		string N(number);
-	};
-	vector<contact_t> N(contact);
-	Json(address_t) {
-		string N(postal_code);
-		string N(state);
-		string N(street);
-		string N(city);
-	};
-	address_t N(address);
-	bool N(marital_status);
-	};
-	profile_t N(profile);
+    Json(query_t){
+    public:
+        int N(count);
+        string N(created);
+        string N(lang);
+        Json(results_t){
+        public:
+            Json(channel_t){
+            public:
+                Json(units_t){
+                public:
+                    string N(distance);
+                    string N(pressure);
+                    string N(speed);
+                    string N(temperature);
+                };
+                units_t N(units);
+                string N(title);
+                string N(link);
+                string N(description);
+                string N(language);
+                string N(lastBuildDate);
+                string N(ttl);
+                Json(location_t){
+                public:
+                    string N(city);
+                    string N(country);
+                    string N(region);
+                };
+                location_t N(location);
+                Json(wind_t){
+                public:
+                    string N(chill);
+                    string N(direction);
+                    string N(speed);
+                };
+                wind_t N(wind);
+                Json(atmosphere_t){
+                public:
+                    string N(humidity);
+                    string N(pressure);
+                    string N(rising);
+                    string N(visibility);
+                };
+                atmosphere_t N(atmosphere);
+                Json(astronomy_t){
+                public:
+                    string N(sunrise);
+                    string N(sunset);
+                };
+                astronomy_t N(astronomy);
+                Json(image_t){
+                public:
+                    string N(title);
+                    string N(width);
+                    string N(height);
+                    string N(link);
+                    string N(url);
+                };
+                image_t N(image);
+                Json(item_t){
+                public:
+                    string N(title);
+                    string N(lat);
+                    string N(longg);
+                    string N(link);
+                    string N(pubDate);
+                    Json(condition_t){
+                    public:
+                        string N(code);
+                        string N(date);
+                        string N(temp);
+                        string N(text);
+                    };
+                    condition_t N(condition);
+                    Json(forecast_t){
+                    public:
+                        string N(code);
+                        string N(date);
+                        string N(day);
+                        string N(high);
+                        string N(low);
+                        string N(text);
+                    };
+                    vector<forecast_t> N(forecast);
+                    string N(description);
+                    Json(guid_t){
+                    public:
+                        string N(isPermaLink);
+                    };
+                    guid_t N(guid);
+                };
+                item_t N(item);
+            };
+            channel_t N(channel);
+        };
+        results_t N(results);
+    };
+    query_t N(query);
 };
 
 class Complex2
@@ -125,42 +203,176 @@ public:
 	profile_t (profile);
 };
 
-TEST_CASE("complex test") {
-	//perf_test("table build 1", 1000000, []()->void {
-	//	Complex t;
+Json(TI) {
+public:
+	int N(a);
+	string N(b);
+	vector<int> N(c);
+};
 
-	//	t.unserialize(R(
-	//		{
-	//			"profile":
-	//	{
-	//		"firstName": [[1,2],[4,5]],
-	//			"lastName" : "&#x4F60;&#x597D;",
-	//			"age" : 1.04577616461583E+15,
-	//			"gender" : "Male",
-	//			"address" :
-	//		{
-	//			"street": "20th 2nd Street",
-	//				"city" : "New York",
-	//				"state" : "NY",
-	//				"postal_code" : "10003"
-	//		},
-	//			"contact": [
-	//			{
-	//				"type": "Home",
-	//					"number" : "(735) 754-0100"
-	//			},
-	//				{
-	//					"type": "Office",
-	//					"number" : "(725) 854-0750"
-	//				}],
-	//				"marital_status": true
-	//	}
-	//		}));
-	//});
-	//perf_test("table build 1", 1000000, []()->void {
-	//	Complex2 t;
-	//});
-	//getchar();
+TEST_CASE("complex test") {
+	perf_test("table build 1", 100000000, []()->void {
+		TI ti;
+		ti.unserialize(R({"a",123,"b":"hello","c":[12,34]}));
+	});
+	perf_test("table build 1", 1000000, []()->void {
+		Complex t;
+
+		t.unserialize(R(
+			{
+				"query": {
+					"count": 1,
+					"created" : "2017-10-18T14:34:38Z",
+					"lang" : "zh-CN",
+					"results" : {
+						"channel": {
+							"units": {
+								"distance": "mi",
+								"pressure" : "in",
+								"speed" : "mph",
+								"temperature" : "F"
+							},
+							"title": "Yahoo! Weather - Beijing, Beijing, CN",
+							"link" : "http://us.rd.yahoo.com/dailynews/rss/weather/Country__Country/*https://weather.yahoo.com/country/state/city-2151330/",
+							"description" : "Yahoo! Weather for Beijing, Beijing, CN",
+							"language" : "en-us",
+							"lastBuildDate" : "Wed, 18 Oct 2017 10:34 PM CST",
+							"ttl" : "60",
+							"location" : {
+								"city": "Beijing",
+								"country" : "China",
+								"region" : " Beijing"
+							},
+							"wind" : {
+								"chill": "54",
+								"direction" : "225",
+								"speed" : "4"
+							},
+							"atmosphere" : {
+								"humidity": "95",
+								"pressure" : "1018.0",
+								"rising" : "0",
+								"visibility" : "10.7"
+							},
+							"astronomy": {
+								"sunrise": "6:28 am",
+								"sunset" : "5:30 pm"
+							},
+							"image" : {
+								"title": "Yahoo! Weather",
+								"width" : "142",
+								"height" : "18",
+								"link" : "http://weather.yahoo.com",
+								"url" : "http://l.yimg.com/a/i/brand/purplelogo//uh/us/news-wea.gif"
+							},
+							"item": {
+								"title": "Conditions for Beijing, Beijing, CN at 09:00 PM CST",
+								"lat" : "39.90601",
+								"long" : "116.387909",
+								"link" : "http://us.rd.yahoo.com/dailynews/rss/weather/Country__Country/*https://weather.yahoo.com/country/state/city-2151330/",
+								"pubDate" : "Wed, 18 Oct 2017 09:00 PM CST",
+								"condition" : {
+									"code": "29",
+									"date" : "Wed, 18 Oct 2017 09:00 PM CST",
+									"temp" : "54",
+									"text" : "Partly Cloudy"
+								},
+								"forecast": [
+									{
+										"code": "12",
+										"date" : "18 Oct 2017",
+										"day" : "Wed",
+										"high" : "57",
+										"low" : "51",
+										"text" : "Rain"
+									},
+									{
+										"code": "30",
+										"date" : "19 Oct 2017",
+										"day" : "Thu",
+										"high" : "64",
+										"low" : "48",
+										"text" : "Partly Cloudy"
+									},
+									{
+										"code": "30",
+										"date" : "20 Oct 2017",
+										"day" : "Fri",
+										"high" : "66",
+										"low" : "49",
+										"text" : "Partly Cloudy"
+									},
+									{
+										"code": "39",
+										"date" : "21 Oct 2017",
+										"day" : "Sat",
+										"high" : "65",
+										"low" : "52",
+										"text" : "Scattered Showers"
+									},
+									{
+										"code": "39",
+										"date" : "22 Oct 2017",
+										"day" : "Sun",
+										"high" : "53",
+										"low" : "46",
+										"text" : "Scattered Showers"
+									},
+									{
+										"code": "30",
+										"date" : "23 Oct 2017",
+										"day" : "Mon",
+										"high" : "59",
+										"low" : "44",
+										"text" : "Partly Cloudy"
+									},
+									{
+										"code": "34",
+										"date" : "24 Oct 2017",
+										"day" : "Tue",
+										"high" : "62",
+										"low" : "42",
+										"text" : "Mostly Sunny"
+									},
+									{
+										"code": "30",
+										"date" : "25 Oct 2017",
+										"day" : "Wed",
+										"high" : "61",
+										"low" : "45",
+										"text" : "Partly Cloudy"
+									},
+									{
+										"code": "30",
+										"date" : "26 Oct 2017",
+										"day" : "Thu",
+										"high" : "62",
+										"low" : "48",
+										"text" : "Partly Cloudy"
+									},
+									{
+										"code": "30",
+										"date" : "27 Oct 2017",
+										"day" : "Fri",
+										"high" : "63",
+										"low" : "45",
+										"text" : "Partly Cloudy"
+									}
+								],
+								"description": "<![CDATA[<img src=\"http://l.yimg.com/a/i/us/we/52/29.gif\"/>\n<BR />\n<b>Current Conditions:</b>\n<BR />Partly Cloudy\n<BR />\n<BR />\n<b>Forecast:</b>\n<BR /> Wed - Rain. High: 57Low: 51\n<BR /> Thu - Partly Cloudy. High: 64Low: 48\n<BR /> Fri - Partly Cloudy. High: 66Low: 49\n<BR /> Sat - Scattered Showers. High: 65Low: 52\n<BR /> Sun - Scattered Showers. High: 53Low: 46\n<BR />\n<BR />\n<a href=\"http://us.rd.yahoo.com/dailynews/rss/weather/Country__Country/*https://weather.yahoo.com/country/state/city-2151330/\">Full Forecast at Yahoo! Weather</a>\n<BR />\n<BR />\n<BR />\n]]>",
+								"guid" : {
+									"isPermaLink": "false"
+								}
+							}
+						}
+					}
+				}
+			}));
+	});
+	perf_test("table build 1", 1000000, []()->void {
+		Complex2 t;
+	});
+	getchar();
 }
 
 Json(Test6)
@@ -182,12 +394,19 @@ public:
 	int N(i);
 };
 
-#include <string>
-#include <iostream>
+TEST_CASE("static test") {
+	auto &fields = field_collector<Test6>::fields();
+	vector<string> names;
+	for (auto &field : fields)
+		names.push_back(field.first);
+
+	vector<string> check = { "b","c","d","e","f","g","h","i" };
+	CHECK(names == check);
+}
 
 TEST_CASE("compatibility test") {
 	Test6 t;
-
+	
 	//if a value not match the static type,the next value should be paresd.
 	t.unserialize(R({ "f" : {},"g" : 123));
 	CHECK(t.f.size() == 0);
@@ -243,6 +462,12 @@ TEST_CASE("bool,null test") {
 	CHECK(t.b == false);
 	CHECK(t.c == "");
 	CHECK(t.d == 0);
+
+	t.unserialize(R({ "b" : 5}));
+	CHECK(t.b == 1);
+
+	t.unserialize(R({ "b" : fal ,"c":"yes"}));
+	CHECK(t.c == "yes");
 }
 
 Json(Test4)

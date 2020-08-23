@@ -4,33 +4,79 @@
 #include <string>
 #include <fstream> 
 #include <iostream>
+#include <vector>
 #include <unordered_map>
 using namespace std;
 
+#define Json(name)\
+class name :public json_base<name>
+
+#define N(name)																														\
+name;																																\
+private:																															\
+	bool unserialize_##name( const char** begin,const char* end) {																	\
+		return unserialize(&name,begin,end);																						\
+	}																																\
+	void serialize_##name(string &res) {																							\
+		serialize(&name,res);																										\
+	}																																\
+	class class__##name:private static_instance<class__##name>{																		\
+	public:																															\
+		class__##name() {																											\
+			data_impl_t<child_t> fie={&child_t::unserialize_##name,&child_t::serialize_##name};										\
+			field_collector<child_t>::fields(#name,&fie);																			\
+		}																															\
+	};																																\
+public:
+
+
+#define STRNG_TO_NUM(data_t,methodl,methodf)	\
+char* endptr;									\
+*data = (data_t)methodl(*begin, &endptr, 10);	\
+if (*endptr == '.')								\
+	*data = (data_t)methodf(*begin, &endptr);	\
+if (endptr == *begin) {							\
+	check_skip(begin, end);						\
+	return false;								\
+}												\
+(*begin) = endptr;								\
+return true;									\
+
+
 template<class T>
-struct data_imple_t {
+struct data_impl_t {
 	typedef bool(T::*unserialize_t)(const char**, const char*);
 	typedef void(T::*serialize_t)(string &res);
 	unserialize_t unserialize;
 	serialize_t serialize;
 };
 
-class colloect
-{
+template<class T>
+class static_instance {
 public:
-	template<class T>
-	colloect(T *obj, const char* name, const data_imple_t<T> *field) {
-		if (!obj->inited_)
-			obj->__add_field(name, field);
-	};
+	static_instance() {
+		ins;
+	}
+private:
+	static T ins;
 };
-
-#define check_result(res)  if (!res) { return false; }
-
-class field_op;
+template<class T>
+T static_instance<T>::ins;
 
 template<class T>
-class json_base_t {
+class field_collector {
+public:
+	static const std::unordered_map<string, data_impl_t<T>>& fields(const char* name = nullptr, const data_impl_t<T> *field = nullptr ) {
+		static std::unordered_map<string, data_impl_t<T>> fields;
+		if (field && fields.find(name) == fields.end()) {
+			fields[name] = *field;
+		}
+		return fields;
+	}
+};
+
+template<class T>
+class json_base:private static_instance<T> {
 	enum json_key_symbol
 	{
 		object_begin = '{',
@@ -46,32 +92,7 @@ class json_base_t {
 	};
 public:
 	typedef T child_t;
-	void __add_field(const char* name, const data_imple_t<T>* field) {
-		if (field && fields_.find(name) == fields_.end()) {
-			fields_[name] = field;
-		}
-		else {
-			inited_ = true;
-		}
-	}
-	json_base_t<T>& operator=(const json_base_t<T>& other) noexcept{
-		return *this;
-	}
-	json_base_t() {
-		//instance_; //模板类需要显示激活
-		//fields_;
-	}
-	json_base_t(const json_base_t<T>& other) {
-	}
-protected:
 private:
-	static bool is_null(const char* begin, size_t len) {
-		if (len == 4 && begin[0] == 'n' && begin[1] == 'u' && begin[2] == 'l' && begin[3] == 'l') {
-			return true;
-		}
-		else
-			return false;
-	}
 	static bool parse_bool(bool &val, const char** begin, const char* end) {
 		char t[5] = "true";
 		char f[6] = "false";
@@ -104,24 +125,87 @@ private:
 			val = false;
 			return true;
 		}
+		else {
+			char* endptr;
+			val = strtol(*begin, &endptr, 10);
+			if (*endptr == '.')
+				val = strtof(*begin, &endptr);
+			if (endptr == *begin)
+				return false;
+			else
+				return true;
+		}
 		val = false;
 		return false;
-	}
-
-	//check whether the string can pass the conversion
-	//case 1: 1xx   case 2:-1xxx   pass no assert
-	static bool check_can_convert_num(const char* begin, size_t len) {
-		if (len > 0 && begin[0] >= '0' && begin[0] <= '9')
-			return true;
-		else if (len > 1 && begin[0] == '-' && begin[1] >= '0' && begin[1] <= '9')
-			return true;
-		else
-			return false;
 	}
 
 	//escape the controll char like \t \r \f etc and whitespace
 	static bool inline is_ctr_or_space_char(char ch) {
 		return (ch == ' ' || (ch >= 0x00 && ch <= 0x1F) || ch == 0x7F);
+	}
+
+	static void check_skip(const char** begin, const char* end) {
+		char ch = get_cur_and_next(begin, end);
+		if (ch == json_key_symbol::object_begin) {
+			skip_object(begin, end);
+		}
+		else if (ch == json_key_symbol::array_begin) {
+			skip_array(begin, end);
+		}
+		else if (ch == json_key_symbol::str) {
+			skip_str(begin, end);
+		}
+	}
+
+	static void skip_object(const char** begin, const char* end) {
+		while (char ch = get_cur_and_next(begin, end)) {
+			if (ch == json_key_symbol::object_begin)
+				skip_object(begin, end);
+			else if (ch == json_key_symbol::object_end)
+				return;
+		}
+	}
+
+	static void skip_array(const char** begin, const char* end) {
+		while (char ch = get_cur_and_next(begin, end)) {
+			if (ch == json_key_symbol::array_begin)
+				skip_array(begin, end);
+			else if (ch == json_key_symbol::array_end)
+				return;
+		}
+	}
+
+	static void skip_str(const char** begin, const char* end) {
+		char pre_ch;
+		while (char ch = get_cur_and_next(begin, end)) {
+			if (ch == json_key_symbol::str && pre_ch != '\\') {
+				return;
+			}
+			pre_ch = ch;
+		}
+	}
+
+	static void skip_space(const char** begin, const char* end) {
+		while (char ch = **begin) {
+			if (!is_ctr_or_space_char(ch))
+				return;
+			ch = get_next(begin, end);
+		}
+	}
+
+	static char inline get_cur_and_next(const char** begin, const char* end) {
+		if (end && end < (*begin + 1))
+			return '\0';
+		else
+			return *((*begin)++);
+	}
+
+	static char inline get_next(const char** begin, const char* end) {
+		(*begin)++;
+		if (end && end < *begin)
+			return '\0';
+		else
+			return **begin;
 	}
 protected:
 	inline static void serialize(bool *data, string &res) {
@@ -163,19 +247,19 @@ protected:
 	inline static void serialize(float *data, string &res) {
 		res += to_string(*data);
 	}
-	template<class T>
-	inline static void serialize(vector<T> *data, string &res) {
-		res += '[';
+	template<class V>
+	inline static void serialize(vector<V> *data, string &res) {
+		res += json_key_symbol::array_begin;
 		for (auto &item : *data) {
 			serialize(&item, res);
-			res += ',';
+			res += json_key_symbol::next_key_value;
 		}
 		if (data->size() > 0)
 			res.pop_back();
-		res += ']';
+		res += json_key_symbol::array_end;
 	}
-	template<class T>
-	inline static void serialize(json_base_t<T> *data, string &res) {
+	template<class V>
+	inline static void serialize(json_base<V> *data, string &res) {
 		data->serialize(res);
 	}
 
@@ -188,100 +272,30 @@ protected:
 	}
 
 	inline static bool unserialize(int32_t *data, const char** begin, const char* end) {
-		char* endptr;
-		*data = strtol(*begin, &endptr, 10);
-		if (*endptr == '.')
-			*data = strtof(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
-			return false;
-		}
-		(*begin) = endptr;
-		return true;
+		STRNG_TO_NUM(int32_t,strtol, strtof);
 	}
 	inline static bool unserialize(int8_t *data, const char** begin, const char* end) {
-		char* endptr;
-		*data = strtol(*begin, &endptr, 10);
-		if (*endptr == '.')
-			*data = strtof(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
-			return false;
-		}
-		(*begin) = endptr;
+		STRNG_TO_NUM(int8_t,strtol, strtof);
 		return true;
 	}
 	inline static bool unserialize(int16_t *data, const char** begin, const char* end) {
-		char* endptr;
-		*data = strtol(*begin, &endptr, 10);
-		if (*endptr == '.')
-			*data = strtof(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
-			return false;
-		}
-		(*begin) = endptr;
+		STRNG_TO_NUM(int16_t,strtol, strtof);
 		return true;
 	}
 	inline static bool unserialize(int64_t *data, const char** begin, const char* end) {
-		char* endptr;
-		*data = strtoll(*begin, &endptr, 10);
-		if (*endptr == '.')
-			*data = strtod(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
-			return false;
-		}
-		(*begin) = endptr;
-		return true;
+		STRNG_TO_NUM(int64_t,strtoll, strtod);
 	}
 	inline static bool unserialize(uint32_t *data, const char** begin, const char* end) {
-		char* endptr;
-		*data = strtoul(*begin, &endptr, 10);
-		if (*endptr == '.')
-			*data = strtod(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
-			return false;
-		}
-		(*begin) = endptr;
-		return true;
+		STRNG_TO_NUM(uint32_t,strtoul, strtod);
 	}
 	inline static bool unserialize(uint8_t *data, const char** begin, const char* end) {
-		char* endptr;
-		*data = strtoul(*begin, &endptr, 10);
-		if (*endptr == '.')
-			*data = strtod(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
-			return false;
-		}
-		(*begin) = endptr;
-		return true;
+		STRNG_TO_NUM(uint8_t,strtoul, strtod);
 	}
 	inline static bool unserialize(uint16_t *data, const char** begin, const char* end) {
-		char* endptr;
-		*data = strtoul(*begin, &endptr, 10);
-		if (*endptr == '.')
-			*data = strtod(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
-			return false;
-		}
-		(*begin) = endptr;
-		return true;
+		STRNG_TO_NUM(uint16_t,strtoul, strtod);
 	}
 	inline static bool unserialize(uint64_t *data, const char** begin, const char* end) {
-		char* endptr;
-		*data = strtoull(*begin, &endptr, 10);
-		if (*endptr == '.')
-			*data = strtod(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
-			return false;
-		}
-		(*begin) = endptr;
-		return true;
+		STRNG_TO_NUM(uint64_t,strtoull, strtod);
 	}
 
 	inline static bool unserialize(double *data, const char** begin, const char* end) {
@@ -306,7 +320,6 @@ protected:
 	}
 	inline static bool unserialize(string *data, const char** begin, const char* end) {
 		if (get_cur_and_next(begin, end) == json_key_symbol::str) {
-			*data = "";
 			parse_str(*data, begin, end);
 		}
 		else {
@@ -316,7 +329,7 @@ protected:
 		return true;
 	}
 	template<class V>
-	inline static bool unserialize(json_base_t<V> *data, const char** begin, const char* end) {
+	inline static bool unserialize(json_base<V> *data, const char** begin, const char* end) {
 		if (**begin == json_key_symbol::object_begin) {
 			if (end)
 				*begin += data->unserialize(*begin, end - *begin);
@@ -330,11 +343,6 @@ protected:
 		return true;
 	}
 
-	// parse array with 4 cases
-	// case 1:["xxx",...]
-	// case 2:[xxx,...]
-	// case 3:[{xxx},...]
-	// case 4:[[xxx],...]
 	template<class V>
 	static bool unserialize(vector<V> *data, const char** begin, const char* end) {
 		// skip the white space and control char
@@ -361,18 +369,18 @@ protected:
 		return false;
 	}
 
-	// parse the string in quotes like "xxx",return the index of the last quote
-	// case: "xxx"
+	// end with '"' and skip "\""
 	static bool parse_str(string &val, const char** begin, const char* end) {
-		char pre_ch;
+		const char* b = *begin;
+		char pre_ch ;
 		while (char ch = get_cur_and_next(begin, end)) {
 			if (ch == json_key_symbol::str && pre_ch != '\\') {
+				val.assign(b, (*begin)-1);
 				return true;
 			}
-			val += ch;
 			pre_ch = ch;
 		}
-		return true;
+		return false;
 	}
 
 	// case 1:"xxx":xxx
@@ -382,10 +390,9 @@ protected:
 	bool parse_key_value(const char** begin, const char* end) {
 		skip_space(begin, end);
 		if (get_cur_and_next(begin,end) == json_key_symbol::str) {
-			//get key
-			string key;
-			parse_str(key, begin, end);
-
+			const char* b = *begin;
+			skip_str( begin, end);
+			string key(b , (*begin) - 1);
 			//parse value
 			skip_space(begin, end);
 			if (get_cur_and_next(begin, end) == json_key_symbol::key_value_separator) {
@@ -398,10 +405,6 @@ protected:
 		return false;
 	}
 
-	// pares object:
-	// case 1:{"xxx":{xxx}}
-	// return |      |len|| 
-	// return |----len----|
 	bool parse_object(const char** begin,const char* end) {
 		// only the key_value should be parsed in {}
 		while (char ch = get_cur_and_next(begin, end)) {
@@ -415,78 +418,16 @@ protected:
 		return false;
 	}
 
-	static void check_skip(const char** begin, const char* end) {
-		char ch = get_cur_and_next(begin, end);
-		if (ch == json_key_symbol::object_begin) {
-			skip_object(begin, end);
+	bool unserialize(string &key, const char** val, const char* end) {
+		auto &fields = field_collector<child_t>::fields();
+		auto iter = fields.find(key);
+		if (iter != fields.end()) {
+			return (((T*)this)->*(iter->second.unserialize))(val, end);
 		}
-		else if (ch == json_key_symbol::array_begin) {
-			skip_array(begin, end);
-		}
-		else if (ch == json_key_symbol::str) {
-			skip_str(begin, end);
-		}
-	}
-
-	static void skip_object(const char** begin, const char* end) {
-		while (char ch = get_cur_and_next(begin, end)) {
-			if (ch == json_key_symbol::object_begin)
-				skip_object(begin, end);
-			else if (ch == json_key_symbol::object_end)
-				return;
-		}
-	}
-
-	static void skip_array(const char** begin, const char* end) {
-		while (char ch = get_cur_and_next(begin, end)) {
-			if (ch == json_key_symbol::array_begin)
-				skip_array(begin, end);
-			else if (ch == json_key_symbol::array_end)
-				return;
-		}
-	}
-
-	static void skip_str(const char** begin, const char* end) {
-		char pre_ch;
-		while (char ch = get_cur_and_next(begin, end)) {
-			if (ch == json_key_symbol::str && pre_ch != '\\') {
-				return;
-			}
-			pre_ch = ch;
-		}	
-	}
-
-	static void skip_space(const char** begin,const char* end) {
-		while (char ch = **begin) {
-			if (!is_ctr_or_space_char(ch))
-				return;
-			ch = get_next(begin, end);
-		}
-	}
-
-	static char inline get_cur_and_next(const char** begin,const char* end) {
-		if (end && end < (*begin+1) )
-			return '\0';
-		else
-			return *((*begin)++);
-	}
-
-	static char inline get_next(const char** begin, const char* end) {
-		(*begin)++;
-		if (end && end < *begin)
-			return '\0';
-		else
-			return **begin;
-	}
-
-	size_t unserialize(string &key, const char** val, const char* end) {
-		auto iter = fields_.find(key);
-		if (iter != fields_.end()) {
-			return (((T*)this)->*(iter->second->unserialize))(val, end);
-		}
-		return 0;
+		return false;
 	}
 public:
+	// if *json end with '\0',don't need the size arg
 	size_t unserialize(const char* json, size_t size = 0) {
 		const char* begin = json;
 		const char* end = nullptr;
@@ -496,44 +437,19 @@ public:
 
 		return begin - json;
 	}
+
 	void serialize(string &res) {
-		res += "{";
-		for (auto &filed : fields_) {
+		auto &fields = field_collector<child_t>::fields();
+		res += json_key_symbol::object_begin;
+		for (auto &filed : fields) {
 			res += "\"" + filed.first + "\":";
-			(((T*)this)->*(filed.second->serialize))(res);
-			res += ',';
+			(((T*)this)->*(filed.second.serialize))(res);
+			res += json_key_symbol::next_key_value;
 		}
-		if (fields_.size() > 0)
+		//pop the json_key_symbol::next_key_value(',')
+		if (fields.size() > 0)
 			res.pop_back();
-		res += "}";
+		res += json_key_symbol::object_end;;
 	}
-private:
-	static std::unordered_map<string, const data_imple_t<T>*> fields_;
-protected:
-	static T instance_;
-public:
-	static bool inited_;
 };
-template<class T>
-T json_base_t<T>::instance_;
-template<class T>
-std::unordered_map<string, const data_imple_t<T>*> json_base_t<T>::fields_;
-template<class T>
-bool json_base_t<T>::inited_ = false;
 
-
-#define N(name) \
-name;\
-private:\
-	bool unserialize_##name( const char** begin,const char* end) {\
-		return unserialize(&name,begin,end);\
-	}\
-	void serialize_##name(string &res) {\
-		serialize(&name,res);\
-	}\
-	static constexpr data_imple_t<child_t> const_impl_##name = { &child_t::unserialize_##name,&child_t::serialize_##name };\
-	colloect collect__##name{this,#name,&const_impl_##name};\
-public:\
-
-#define Json(name)\
-class name :public json_base_t<name>

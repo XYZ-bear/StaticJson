@@ -1,0 +1,377 @@
+<script>
+window.onload = function () {
+    document.getElementById("json_code").value = JSON.stringify({
+        "problems": 123, "sfsf": "sf", "fsf": { "sfsf": "sf" }, "fsfddd": [{}]
+    });
+    read_storage();
+    run();
+}
+
+function isInteger(n) {
+    return parseInt(n) == parseFloat(n)
+}
+function isFloat(n) {
+    return parseInt(n) < parseFloat(n)
+}
+
+function tab_len() {
+    var len = document.getElementById("tab_len").value;
+    var str = "";
+    for (var i = 0; i < len; i++) {
+        str += " ";
+    }
+    return str;
+}
+
+function add_tab(c_node, blob) {
+    for (var i = 0; i < blob; i++) {
+        c_node.value += tab_len();
+    }
+}
+
+var int_type = "int";
+var float_type = "float";
+var bool_type = "bool";
+var vec_type = "vector";
+var str_type = "string";
+
+function pares(c_node, json, blob,is_parent_array) {
+    blob += 1;
+
+    if (Array.isArray(json)) {
+        if (json.length > 0) {
+            if (Array.isArray(json[0])) {
+                if (is_parent_array == false || is_parent_array == undefined)
+                    add_tab(c_node, blob);
+                c_node.value += vec_type + "<";
+                pares(c_node, json[0], blob, true);
+                c_node.value += ">";
+            }
+            else if (typeof json[0] == 'object') {
+                //c_node.value += "\n";
+                add_tab(c_node, blob);
+                c_node.value += "Json(" + p + "_t){\n";
+                pares(c_node, json[0], blob);
+                add_tab(c_node, blob);
+                c_node.value += "};\n";
+                add_tab(c_node, blob);
+                c_node.value += vec_type + "<" + p + "_t> N(" + p + ");\n";
+            }
+            else {
+                if (is_parent_array == false || is_parent_array == undefined)
+                    add_tab(c_node, blob);
+                c_node.value += vec_type + "<";
+                if (typeof json[0] == "string") {
+                    c_node.value += str_type;
+                }
+                else if (isInteger(json[0]))
+                    c_node.value += int_type;
+                else if (isFloat(json[0]))
+                    c_node.value += float_type;
+                else if (typeof json[0] == "boolean")
+                    c_node.value += bool_type;
+                else
+                    c_node.value += (typeof json[0]);// + JSON.stringify(json[p]) + "\n");
+                c_node.value += ">";
+            }
+        }
+        else {
+            c_node.value += vec_type + "<" + str_type +">";
+        }
+        return;
+    }
+
+
+    for (var p in json) {//遍历json对象的每个key/value对,p为key
+        if (Array.isArray(json[p])) {
+            if (json[p].length > 0) {
+                if (Array.isArray(json[p][0])) {
+                    if (is_parent_array == false || is_parent_array == undefined)
+                        add_tab(c_node, blob);
+                    c_node.value += vec_type + "<";
+                    pares(c_node, json[p][0], blob,true);
+                    c_node.value += "> N(" + p + ")" + ";\n"
+                }
+                else if (typeof json[p][0] == 'object') {
+                    //c_node.value += "\n";
+                    add_tab(c_node, blob);
+                    c_node.value += "Json(" + p + "_t){\n";
+					add_tab(c_node, blob);
+					c_node.value+= "public:\n";
+                    pares(c_node, json[p][0], blob);
+                    add_tab(c_node, blob);
+                    c_node.value += "};\n";
+                    add_tab(c_node, blob);
+                    c_node.value += vec_type + "<" + p + "_t> N(" + p + ");\n";
+                }
+                else {
+                    add_tab(c_node, blob);
+                    c_node.value += vec_type + "<";
+                    if (typeof json[p][0] == "string") {
+                        c_node.value += str_type;
+                    }
+                    else if (isInteger(json[p][0]))
+                        c_node.value += int_type;
+                    else if (isFloat(json[p][0]))
+                        c_node.value += float_type;
+                    else if (typeof json[p][0] == "boolean")
+                        c_node.value += bool_type;
+                    else
+                        c_node.value += (typeof json[p][0]);// + JSON.stringify(json[p]) + "\n");
+                    c_node.value += "> N(" + p + ")" + ";\n"
+                }
+            }
+            else {
+                add_tab(c_node, blob);
+                c_node.value += (vec_type + " N(" + p + ")" + ";\n");
+            }
+
+        }
+        else if (typeof json[p] == 'object') {
+            add_tab(c_node, blob);
+            c_node.value += "Json(" + p + "_t){\n";
+			add_tab(c_node, blob);
+			c_node.value+= "public:\n";
+            pares(c_node, json[p], blob);
+            add_tab(c_node, blob);
+            c_node.value += "};\n";
+            add_tab(c_node, blob);
+            c_node.value += p + "_t N(" + p + ");\n";
+        }
+        else {
+            //c_node.value += "\n";
+            add_tab(c_node, blob);
+            if (typeof json[p] == "string") {
+                c_node.value += (str_type + " N(" + p + ")" + ";\n");
+            }
+            else if (isInteger(json[p]))
+                c_node.value += (int_type + " N(" + p + ")" + ";\n");
+            else if (isFloat(json[p]))
+                c_node.value += (float_type + " N(" + p + ")" + ";\n");
+            else if (typeof json[p] == "boolean")
+                c_node.value += (bool_type + " N(" + p + ")" + ";\n");
+            else
+                c_node.value += (typeof json[p] + " N(" + p + ")" + ";\n");// + JSON.stringify(json[p]) + "\n");
+        }
+    }
+}
+
+function add_tab2() {
+    return tab_len();
+}
+
+var pre_define = "";
+function pares2(c_node, json, blob) {
+    var ele_define = "";
+    for (var p in json) {//遍历json对象的每个key/value对,p为key
+        if (Array.isArray(json[p])) {
+            if (json[p].length > 0) {
+                if (typeof json[p][0] == 'object') {
+                    var str = "";
+                    str += "Json(" + p + "_t){\npublic:\n";
+                    str += pares2(c_node, json[p][0], blob);
+                    str += "};\n\n";
+                    ele_define += add_tab2();
+                    ele_define += vec_type + "<" + p + "_t> N(" + p + ");\n";
+                    pre_define += (str);
+                }
+                else {
+                    ele_define += add_tab2();
+                    ele_define += vec_type + "<";
+                    if (typeof json[p][0] == "string")
+                        ele_define += str_type;
+                    else if (isInteger(json[p]))
+                        ele_define += int_type;
+                    else if (isFloat(json[p]))
+                        ele_define += float_type;
+                    else if (typeof json[p] == "boolean")
+                        ele_define += bool_type;
+                    else
+                        ele_define += (typeof json[p]);// + JSON.stringify(json[p]) + "\n");
+                    ele_define += "> N(" + p + ")" + ";\n"
+                }
+            }
+            else {
+                ele_define += add_tab2();
+                ele_define += (vec_type + " N(" + p + ")" + ";\n");
+            }
+
+        }
+        else if (typeof json[p] == 'object') {
+            var str = "";
+            str += "Json(" + p + "_t){\npublic:\n";
+            str += pares2(c_node, json[p], blob);
+            str += "};\n\n";
+            ele_define += add_tab2();
+            ele_define += p + "_t N(" + p + ");\n";
+            pre_define += (str);
+        }
+        else {
+            ele_define += add_tab2();
+            if (typeof json[p] == "string") {
+                ele_define += (str_type + " N(" + p + ")" + ";\n");
+            }
+            else if (isInteger(json[p]))
+                ele_define += (int_type + " N(" + p + ")" + ";\n");
+            else if (isFloat(json[p]))
+                ele_define += (float_type + " N(" + p + ")" + ";\n");
+            else if (typeof json[p] == "boolean")
+                ele_define += (bool_type + " N(" + p + ")" + ";\n");
+            else
+                ele_define += (typeof json[p] + " N(" + p + ")" + ";\n");// + JSON.stringify(json[p]) + "\n");
+        }
+    }
+    return ele_define;
+}
+
+function read_storage() {
+    if (window.localStorage.getItem("inited") != null) {
+        document.getElementById("int_type").value = window.localStorage.getItem("int_type");
+        document.getElementById("float_type").value = window.localStorage.getItem("float_type");
+        document.getElementById("bool_type").value = window.localStorage.getItem("bool_type");
+        document.getElementById("vec_type").value = window.localStorage.getItem("vec_type");
+        document.getElementById("str_type").value = window.localStorage.getItem("str_type");
+        document.getElementById("class_name").value = window.localStorage.getItem("class_name");
+        document.getElementById("tab_len").value = window.localStorage.getItem("tab_len");
+        document.getElementById("r1").value = window.localStorage.getItem("r1");
+        document.getElementById("r2").value = window.localStorage.getItem("r2");
+        document.getElementById("json_code").value = window.localStorage.getItem("json_code");
+    }
+}
+
+function write_storage() {
+    window.localStorage.setItem("int_type",document.getElementById("int_type").value);
+    window.localStorage.setItem("float_type",document.getElementById("float_type").value);
+    window.localStorage.setItem("bool_type",document.getElementById("bool_type").value);
+    window.localStorage.setItem("vec_type",document.getElementById("vec_type").value);
+    window.localStorage.setItem("str_type",document.getElementById("str_type").value);
+    window.localStorage.setItem("class_name",document.getElementById("class_name").value);
+    window.localStorage.setItem("tab_len",document.getElementById("tab_len").value);
+    window.localStorage.setItem("r1",document.getElementById("r1").value);
+    window.localStorage.setItem("r2",document.getElementById("r2").value);
+    window.localStorage.setItem("json_code",document.getElementById("json_code").value);
+    window.localStorage.setItem("inited",true);
+}
+
+function run() {
+    int_type = document.getElementById("int_type").value;
+    float_type = document.getElementById("float_type").value;
+    bool_type = document.getElementById("bool_type").value;
+    vec_type = document.getElementById("vec_type").value;
+    str_type = document.getElementById("str_type").value;
+
+    var class_name = document.getElementById("class_name").value;
+    var json_code_node = document.getElementById("json_code");
+    var c_code_node = document.getElementById("c_code");
+    if (json_code_node.value.length > 0) {
+        c_code_node.value = "";
+        pre_define = "";
+        try {
+            myJson = JSON.parse(json_code_node.value);// {"basic":{"cid":"1","location":"2","lon":"3","lat":"4","ca":0,"parent_city":"6","admin_area":"7","cnty":"8","tz":"9"},"basics":[1,2,3]};
+
+            json_code_node.value = JSON.stringify(myJson,null,4);
+            var is_recursive = document.getElementById("r1").checked;
+            if (!is_recursive) {
+                c_code_node.value = "Json(" + class_name + ")\n{\npublic:\n";
+                var str = "Json(" + class_name + ")\n{\npublic:\n";
+                var blob = 0;
+                str += pares2(c_code_node, myJson, blob);
+                c_code_node.value += "};";
+                pre_define += str;
+                pre_define += "};";
+                c_code_node.value = pre_define;
+            }
+            else {
+                c_code_node.value = "Json(" + class_name + ")\n{\npublic:\n";
+                var blob = 0;
+                pares(c_code_node, myJson, blob);
+                c_code_node.value += "};";
+            }
+
+        } catch (e) {
+            c_code_node.value = "json format error";//'error：' + str + '!!!' + e;
+            console.log(e);
+            return false;
+        }
+    }
+
+    write_storage();
+}
+</script>
+
+
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>登陆.html</title>
+</head>
+
+<body>
+	<form name="user" action="#" method="get" oninput ="run()">
+		<table align="center">
+			<tr>
+				<td>类名：</td>
+				<td>
+					<input type="text" name="class_name" id="class_name" value="Test"/>
+                </td>
+          </tr>
+            <tr>
+				<td>整型：</td>
+				<td>
+					<input type="text" name="int_type" id="int_type" value="int"/>
+                </td>
+          </tr>
+         <tr>
+				<td>浮点型：</td>
+				<td>
+					<input type="text" name="float_type" id="float_type" value="double"/>
+                </td>
+          </tr>
+          <tr>
+				<td>bool型：</td>
+				<td>
+					<input type="text" name="bool_type" id="bool_type" value="bool"/>
+                </td>
+          </tr>
+          <tr>
+				<td>数组型：</td>
+				<td>
+					<input type="text" name="vec_type" id="vec_type" value="vector"/>
+                </td>
+          </tr>
+          <tr>
+				<td>字符串型：</td>
+				<td>
+					<input type="text" name="str_type" id="str_type" value="string"/>
+                </td>
+          </tr>
+          <tr>
+				<td>制表符长度：</td>
+				<td>
+					<input type="text" name="tab_len" id="tab_len" value="4"/>
+                </td>
+          </tr>
+          <tr>
+				<td>递归定义：</td>
+				<td>
+					<label><input name="Recursive" id = "r1" type="radio" value="" checked="true"/>是 </label>
+                    <label><input name="Recursive" id = "r2" type="radio" value=""/>否 </label>
+                </td>
+          </tr>
+          <tr>
+				<td>json</td>
+				<td>c++</td>
+          </tr>
+          <tr>
+             <td>
+                <textarea rows="55" cols="70" name="json_code" id="json_code"></textarea>
+            </td>
+             <td>
+                <textarea rows="55" cols="70" name="c_code"" id="c_code" style="pre"></textarea>
+            </td>
+          </tr>
+       </table>
+    </form>
+  </body>
+</html>
