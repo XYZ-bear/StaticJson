@@ -6,6 +6,7 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
+#include <map>
 using namespace std;
 
 #define Json(name)\
@@ -66,8 +67,8 @@ T static_instance<T>::ins;
 template<class T>
 class field_collector {
 public:
-	static const std::unordered_map<string, data_impl_t<T>>& fields(const char* name = nullptr, const data_impl_t<T> *field = nullptr ) {
-		static std::unordered_map<string, data_impl_t<T>> fields;
+	static const std::map<string, data_impl_t<T>>& fields(const char* name = nullptr, const data_impl_t<T> *field = nullptr ) {
+		static std::map<string, data_impl_t<T>> fields;
 		if (field && fields.find(name) == fields.end()) {
 			fields[name] = *field;
 		}
@@ -76,7 +77,7 @@ public:
 };
 
 template<class T>
-class json_base:private static_instance<T> {
+class json_base{
 	enum json_key_symbol
 	{
 		object_begin = '{',
@@ -359,7 +360,7 @@ protected:
 			if (ch == json_key_symbol::array_begin || ch == json_key_symbol::next_key_value) {
 				skip_space(begin, end);
 				V value;
-				if (unserialize(&value, begin, end))
+				if (unserialize(&value, begin, end)) {}
 					(*data).emplace_back(value);
 			}
 			else if (ch == json_key_symbol::array_end) {
