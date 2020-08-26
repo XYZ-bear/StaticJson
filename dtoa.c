@@ -2393,7 +2393,7 @@ d2b(U *d, int *e, int *bits MTd)
 #undef d1
 
  static double
-ratio(Bigint *a, Bigint *b)
+ratio2(Bigint *a, Bigint *b)
 {
 	U da, db;
 	int k, ka, kb;
@@ -3439,7 +3439,7 @@ strtod(const char *s00, char **se)
 	U aadj2, adj, rv, rv0;
 	ULong y, z;
 	BCinfo bc;
-	Bigint *bb, *bb1, *bd, *bd0, *bs, *delta;
+	Bigint *bb = nullptr, *bb1 = nullptr, *bd = nullptr, *bd0 = nullptr, *bs = nullptr, *delta = nullptr;
 #ifdef USE_BF96
 	ULLong bhi, blo, brv, t00, t01, t02, t10, t11, terv, tg, tlo, yz;
 	const BF96 *p10;
@@ -4433,7 +4433,7 @@ strtod(const char *s00, char **se)
 					}
 				break;
 				}
-			adj.d = ratio(delta, bs);
+			adj.d = ratio2(delta, bs);
 			if (adj.d < 1.)
 				adj.d = 1.;
 			if (adj.d <= 0x7ffffffe) {
@@ -4627,7 +4627,7 @@ strtod(const char *s00, char **se)
 #endif
 			break;
 			}
-		if ((aadj = ratio(delta, bs)) <= 2.) {
+		if ((aadj = ratio2(delta, bs)) <= 2.) {
 			if (bc.dsign)
 				aadj = aadj1 = 1.;
 			else if (word1(&rv) || word0(&rv) & Bndry_mask) {
@@ -5003,7 +5003,7 @@ dtoa_r(double dd, int mode, int ndigits, int *decpt, int *sign, char **rve, char
 #if !defined(Sudden_Underflow) || defined(USE_BF96)
 	int denorm;
 #endif
-	Bigint *b, *b1, *delta, *mlo, *mhi, *S;
+	Bigint *b=nullptr, *b1 = nullptr, *delta = nullptr, *mlo = nullptr, *mhi = nullptr, *S = nullptr;
 	U u;
 	char *s;
 #ifdef SET_INEXACT
@@ -5517,7 +5517,7 @@ dtoa_r(double dd, int mode, int ndigits, int *decpt, int *sign, char **rve, char
 					}
 				}
 			else {
-				zb = -(1ull << (eulp + 63));
+				zb = -1*(1ull << (eulp + 63));
 				if (!(zb & res)) {
 					sres = res << (1 - eulp);
 					if (sres < ulp && (!spec_case || 2*sres < ulp)) {
@@ -5635,7 +5635,7 @@ dtoa_r(double dd, int mode, int ndigits, int *decpt, int *sign, char **rve, char
 				goto Fast_failed1;
 				}
 			else {
-				zb = -(1ull << (eulp + 60));
+				zb = -1*(1ull << (eulp + 60));
 				if (!(zb & (res + rb))) {
 					sres = (res - rb) << (1 - eulp);
 					if (sres < ulp && (!spec_case || 2*sres < ulp)) {

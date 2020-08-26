@@ -8,12 +8,8 @@
 #include <unordered_map>
 #include <map>
 
-#define IEEE_8087
-
-#ifdef IEEE_8087
-#include "dtoa.c"
-#endif //IEEE_8087
-
+extern "C" double strtod(const char *s00, char **se);
+extern "C" char *dtoa(double d, int mode, int ndigits, int *decpt, int *sign, char **rve);
 
 using namespace std;
 
@@ -38,7 +34,6 @@ private:																															\
 	};																																\
 public:
 
-
 #define STRNG_TO_NUM(data_t,methodl,methodf)	\
 char* endptr;									\
 *data = (data_t)methodl(*begin, &endptr, 10);	\
@@ -51,6 +46,7 @@ if (endptr == *begin) {							\
 (*begin) = endptr;								\
 return true;									\
 
+#define R(...) #__VA_ARGS__
 
 template<class T>
 struct data_impl_t {
@@ -72,12 +68,12 @@ private:
 template<class T>
 T static_instance<T>::ins;
 
-class Key {
+class no_copy_string {
 public:
 	const char* str;
 	size_t len;
 
-	Key(const char* s, size_t l = 0) {
+	no_copy_string(const char* s, size_t l = 0) {
 		str = s;
 		len = l;
 	}
@@ -85,10 +81,9 @@ public:
 
 namespace std {
 	template<>
-	struct hash<Key> {//哈希的模板定制
+	struct hash<no_copy_string> {
 	public:
-		size_t operator()(const Key &p) const
-		{
+		size_t operator()(const no_copy_string &p) const{
 			unsigned long h = 0;
 			if (p.len) {
 				for (int i = 0; i < p.len; i++) {
@@ -101,15 +96,14 @@ namespace std {
 					h = 5 * h + *s;
 			}
 			return size_t(h);
-			//return hash<string>()(p.name) ^ hash<int>()(p.age);
 		}
 
 	};
 
 	template<>
-	struct equal_to<Key> {//等比的模板定制
+	struct equal_to<no_copy_string> {
 	public:
-		bool operator()(const Key &p1, const Key &p2) const
+		bool operator()(const no_copy_string &p1, const no_copy_string &p2) const
 		{
 			for (int i = 0; (p1.str[i] || i < p1.len) && (p2.str[i] || i < p2.len); i++) {
 				if (p1.str[i] != p2.str[i])
@@ -120,36 +114,18 @@ namespace std {
 
 	};
 }
-//#define KKey
 
-#ifdef KKey
 template<class T>
 class field_collector {
 public:
-	static const std::unordered_map<Key, data_impl_t<T>>& fields(const char* name = nullptr, const data_impl_t<T> *field = nullptr) {
-		static std::unordered_map<Key, data_impl_t<T>> fields;
-		if (field && fields.find(Key(name)) == fields.end()) {
-			fields[Key(name)] = *field;
+	static const std::unordered_map<no_copy_string, data_impl_t<T>>& fields(const char* name = nullptr, const data_impl_t<T> *field = nullptr) {
+		static std::unordered_map<no_copy_string, data_impl_t<T>> fields;
+		if (field && fields.find(no_copy_string(name)) == fields.end()) {
+			fields[no_copy_string(name)] = *field;
 		}
 		return fields;
 	}
 };
-#else
-template<class T>
-class field_collector {
-public:
-	static const std::unordered_map<string, data_impl_t<T>>& fields(const char* name = nullptr, const data_impl_t<T> *field = nullptr) {
-		static std::unordered_map<string, data_impl_t<T>> fields;
-		if (field && fields.find(name) == fields.end()) {
-			fields[name] = *field;
-		}
-		return fields;
-	}
-};
-#endif // KKey
-
-
-
 
 template<class T>
 class json_base{
@@ -352,7 +328,6 @@ protected:
 			}
 			res += re;
 		}
-		
 #else
 		res += to_string(*data);
 #endif // IEEE_8087
@@ -509,14 +484,13 @@ protected:
 	// case 2:"xxx":"xxx"
 	// case 3:"xxx":{xxx}
 	// case 4:"xxx":[xxx]
-#ifdef KKey
 	bool parse_key_value(const char** begin, const char* end) {
 		skip_space(begin, end);
 		if (get_cur_and_next(begin,end) == json_key_symbol::str) {
 			const char* b = *begin;
 			skip_str(begin, end);
 			//size_t ha = hash_str( begin, end);
-			Key key(b, (*begin) - 1 - b);
+			no_copy_string key(b, (*begin) - 1 - b);
 			skip_space(begin, end);
 			if (get_cur_and_next(begin, end) == json_key_symbol::key_value_separator) {
 				skip_space(begin, end);
@@ -527,25 +501,7 @@ protected:
 		}
 		return false;
 	}
-#else
-	bool parse_key_value(const char** begin, const char* end) {
-		skip_space(begin, end);
-		if (get_cur_and_next(begin, end) == json_key_symbol::str) {
-			const char* b = *begin;
-			skip_str(begin, end);
-			string key(b , (*begin) - 1);
-			//parse value
-			skip_space(begin, end);
-			if (get_cur_and_next(begin, end) == json_key_symbol::key_value_separator) {
-				skip_space(begin, end);
-				return unserialize(key, begin, end);
-			}
-			else
-				return false;
-		}
-		return false;
-	}
-#endif
+
 
 	bool parse_object(const char** begin,const char* end) {
 		// only the key_value should be parsed in {}
@@ -560,8 +516,7 @@ protected:
 		return false;
 	}
 
-#ifdef KKey
-	bool unserialize(Key &key, const char** val, const char* end) {
+	bool unserialize(no_copy_string &key, const char** val, const char* end) {
 		auto &fields = field_collector<child_t>::fields();
 		auto iter = fields.find(key);
 		if (iter != fields.end()) {
@@ -570,18 +525,6 @@ protected:
 		check_skip(val, end);
 		return false;
 	}
-
-#else
-	bool unserialize(string &key, const char** val, const char* end) {
-		auto &fields = field_collector<child_t>::fields();
-		auto iter = fields.find(key);
-		if (iter != fields.end()) {
-			return (((T*)this)->*(iter->second.unserialize))(val, end);
-		}
-		check_skip(val, end);
-		return false;
-	}
-#endif // KKey
 public:
 	// if *json end with '\0',don't need the size arg
 	size_t unserialize(const char* json, size_t size = 0) {
@@ -595,17 +538,22 @@ public:
 	}
 
 	void serialize(string &res) {
-		//auto &fields = field_collector<child_t>::fields();
-		//res += json_key_symbol::object_begin;
-		//for (auto &filed : fields) {
-		//	res += "\"" + filed.first + "\":";
-		//	(((T*)this)->*(filed.second.serialize))(res);
-		//	res += json_key_symbol::next_key_value;
-		//}
-		////pop the json_key_symbol::next_key_value(',')
-		//if (fields.size() > 0)
-		//	res.pop_back();
-		//res += json_key_symbol::object_end;
+		auto &fields = field_collector<child_t>::fields();
+		res += json_key_symbol::object_begin;
+		for (auto &filed : fields) {
+			res += "\"";
+			if (filed.first.len)
+				res.append(filed.first.str, filed.first.len);
+			else
+				res += filed.first.str;
+			res += "\":";
+			(((T*)this)->*(filed.second.serialize))(res);
+			res += json_key_symbol::next_key_value;
+		}
+		//pop the json_key_symbol::next_key_value(',')
+		if (fields.size() > 0)
+			res.pop_back();
+		res += json_key_symbol::object_end;
 	}
 };
 
