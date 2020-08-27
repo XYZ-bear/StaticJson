@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <map>
 
+#define IEEE_8087
+
 extern "C" double strtod(const char *s00, char **se);
 extern "C" char *dtoa(double d, int mode, int ndigits, int *decpt, int *sign, char **rve);
 
@@ -28,7 +30,11 @@ private:																															\
 	class class__##name:private static_instance<class__##name>{																		\
 	public:																															\
 		class__##name() {																											\
-			data_impl_t<child_t> fie={&child_t::unserialize_##name,&child_t::serialize_##name};										\
+			data_impl_t fie;																										\
+			unserialize_fun_t us= &child_t::unserialize_##name;																		\
+			fie.unserialize = *(size_t*)&us;																						\
+			serialize_fun_t s = &child_t::serialize_##name;																			\
+			fie.serialize = *(size_t*)&s;																							\
 			field_collector<child_t>::fields(#name,&fie);																			\
 		}																															\
 	};																																\
@@ -48,13 +54,6 @@ return true;									\
 
 #define R(...) #__VA_ARGS__
 
-template<class T>
-struct data_impl_t {
-	typedef bool(T::*unserialize_t)(const char**, const char*);
-	typedef void(T::*serialize_t)(string &res);
-	unserialize_t unserialize;
-	serialize_t serialize;
-};
 
 template<class T>
 class static_instance {
@@ -68,14 +67,16 @@ private:
 template<class T>
 T static_instance<T>::ins;
 
+//This is a special string as the unordered map key, which is no copy, just a pointer to the string beginning. 
+//If use std::string as the key, which will new char[] on the heap, copy some chars and release, basically no need
+//when initializing the fields the key come from const char* and end with '\0'
+//but when parsing the json string, we all know that the keys end with '"',
+//so by this way we can do someshit on the json string directly
 class no_copy_string {
 public:
 	const char* str;
-	size_t len;
-
-	no_copy_string(const char* s, size_t l = 0) {
+	no_copy_string(const char* s) {
 		str = s;
-		len = l;
 	}
 };
 
@@ -85,16 +86,22 @@ namespace std {
 	public:
 		size_t operator()(const no_copy_string &p) const{
 			unsigned long h = 0;
-			if (p.len) {
-				for (int i = 0; i < p.len; i++) {
-					h = 5 * h + p.str[i];
+			const char *s = p.str;
+
+			for (; *s; ++s) {
+				if (*s == '"')
+					break;
+				else if (*s == '\\') {
+					h = 5 * h + *s;
+					if (*(++s))
+						h = 5 * h + *s;
+					else
+						break;
 				}
-			}
-			else {
-				const char *s = p.str;
-				for (; *s; ++s)
+				else
 					h = 5 * h + *s;
 			}
+				
 			return size_t(h);
 		}
 
@@ -105,9 +112,20 @@ namespace std {
 	public:
 		bool operator()(const no_copy_string &p1, const no_copy_string &p2) const
 		{
-			for (int i = 0; (p1.str[i] || i < p1.len) && (p2.str[i] || i < p2.len); i++) {
+			for (int i = 0;; i++) {
+				if ((!p1.str[i] || p1.str[i] == '"') || (!p2.str[i] || p2.str[i] == '"')) {
+					break;
+				}
 				if (p1.str[i] != p2.str[i])
 					return false;
+				else {
+					if (p1.str[i] == '\\') {
+						i++;
+						if (p1.str[i] != p2.str[i])
+							return false;
+					}
+				}
+
 			}
 			return true;
 		}
@@ -115,17 +133,23 @@ namespace std {
 	};
 }
 
+struct data_impl_t {
+	size_t unserialize;
+	size_t serialize;
+};
+
 template<class T>
 class field_collector {
 public:
-	static const std::unordered_map<no_copy_string, data_impl_t<T>>& fields(const char* name = nullptr, const data_impl_t<T> *field = nullptr) {
-		static std::unordered_map<no_copy_string, data_impl_t<T>> fields;
+	static const std::unordered_map<no_copy_string, data_impl_t>& fields(const char* name = nullptr, const data_impl_t *field = nullptr) {
+		static std::unordered_map<no_copy_string, data_impl_t> fields;
 		if (field && fields.find(no_copy_string(name)) == fields.end()) {
 			fields[no_copy_string(name)] = *field;
 		}
 		return fields;
 	}
 };
+
 
 template<class T>
 class json_base{
@@ -144,6 +168,8 @@ class json_base{
 	};
 public:
 	typedef T child_t;
+	typedef bool(T::*unserialize_fun_t)(const char**, const char*);
+	typedef void(T::*serialize_fun_t)(string &res);
 private:
 	static bool parse_bool(bool &val, const char** begin, const char* end) {
 		char t[5] = "true";
@@ -246,12 +272,13 @@ private:
 	}
 
 	static void skip_str(const char** begin, const char* end) {
-		char pre_ch;
 		while (char ch = get_cur_and_next(begin, end)) {
-			if (ch == json_key_symbol::str && pre_ch != '\\') {
+			if (ch == json_key_symbol::str) {
 				return;
 			}
-			pre_ch = ch;
+			else if (ch == '\\') {
+				ch = get_cur_and_next(begin, end);
+			}
 		}
 	}
 
@@ -469,13 +496,14 @@ protected:
 	// end with '"' and skip "\""
 	static bool parse_str(string &val, const char** begin, const char* end) {
 		const char* b = *begin;
-		char pre_ch = **begin;
 		while (char ch = get_cur_and_next(begin, end)) {
-			if (ch == json_key_symbol::str && pre_ch != '\\') {
+			if (ch == json_key_symbol::str) {
 				val.assign(b, (*begin)-1);
 				return true;
 			}
-			pre_ch = ch;
+			else if (ch == '\\') {
+				ch = get_cur_and_next(begin, end);
+			}
 		}
 		return false;
 	}
@@ -489,8 +517,7 @@ protected:
 		if (get_cur_and_next(begin,end) == json_key_symbol::str) {
 			const char* b = *begin;
 			skip_str(begin, end);
-			//size_t ha = hash_str( begin, end);
-			no_copy_string key(b, (*begin) - 1 - b);
+			no_copy_string key(b);
 			skip_space(begin, end);
 			if (get_cur_and_next(begin, end) == json_key_symbol::key_value_separator) {
 				skip_space(begin, end);
@@ -520,7 +547,8 @@ protected:
 		auto &fields = field_collector<child_t>::fields();
 		auto iter = fields.find(key);
 		if (iter != fields.end()) {
-			return (((T*)this)->*(iter->second.unserialize))(val, end);
+			unserialize_fun_t *uns = (unserialize_fun_t *)&iter->second.unserialize;
+			return (((T*)this)->*(*uns))(val, end);
 		}
 		check_skip(val, end);
 		return false;
@@ -542,12 +570,10 @@ public:
 		res += json_key_symbol::object_begin;
 		for (auto &filed : fields) {
 			res += "\"";
-			if (filed.first.len)
-				res.append(filed.first.str, filed.first.len);
-			else
-				res += filed.first.str;
+			res += filed.first.str;
 			res += "\":";
-			(((T*)this)->*(filed.second.serialize))(res);
+			serialize_fun_t *s = (serialize_fun_t *)&filed.second.serialize;
+			(((T*)this)->*(*s))(res);
 			res += json_key_symbol::next_key_value;
 		}
 		//pop the json_key_symbol::next_key_value(',')

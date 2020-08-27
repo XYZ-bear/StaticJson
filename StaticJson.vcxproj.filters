@@ -32,6 +32,9 @@
     <ClCompile Include="big_json_test.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="parse_test.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
     <ClCompile Include="base_test.cpp">
       <Filter>源文件</Filter>
     </ClCompile>

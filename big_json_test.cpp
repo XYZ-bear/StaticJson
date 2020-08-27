@@ -12,10 +12,21 @@ void get_file(string path, string &res) {
 	myfile.close();
 }
 
+Json(D) {
+public:
+	double N(d);
+};
+
 TEST_CASE("twitter test") {
+	PERF(canada_test, 100000000) {
+		D d;
+		d.unserialize(R({ "d":1.7976931348623157 }));
+	}
+
+
 	string res;
 	get_file(".//data//twitter.json",res);
-	PERF(twitter_test, 1) {
+	PERF(twitter_test, 100) {
 		Twitter twitter;
 		twitter.unserialize(res.data());
 	}
