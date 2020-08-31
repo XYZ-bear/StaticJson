@@ -37,10 +37,7 @@ public:
             string N(screen_name);
             string N(location);
             string N(description);
-            Json(url_t){
-            public:
-            };
-            url_t N(url);
+            string N(url);
             Json(entities_t){
             public:
                 Json(description_t){
