@@ -23,7 +23,7 @@ public:
 		if (count++ < times)
 			return true;
 		else {
-			cout << name << ":" << clock() - start << "ms" << endl;
+			cout <<"[perftest]" << name << ":" << clock() - start << "ms" << endl;
 			return false;
 		}
 	}

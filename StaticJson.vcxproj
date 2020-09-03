@@ -20,12 +20,14 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="doctest.h" />
+    <ClInclude Include="dynamic.h" />
     <ClInclude Include="perf.h" />
     <ClInclude Include="static_json.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="base_test.cpp" />
     <ClCompile Include="dtoa.c" />
+    <ClCompile Include="dynamic_test.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="big_json_test.cpp" />
     <ClCompile Include="parse_test.cpp" />
