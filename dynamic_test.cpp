@@ -73,3 +73,38 @@ TEST_CASE("araay test") {
 	//cout << dj2["c"]["d"].is_number();
 	dj2.dump();
 }
+
+TEST_CASE("parse test") {
+	dynamic_json dj;
+
+	dj.unserialize(R({"a":2334}));
+
+	dj.dump();
+
+
+	CHECK((dj["a"] == 2334));
+
+	dj.unserialize(R({ "a":"hello" }));
+	CHECK((dj["a"] == "hello"));
+
+	dj.unserialize(R({ "a": [123,456] }));
+	dj.dump();
+	CHECK((dj["a"][0] == 123));
+	CHECK((dj["a"][1] == 456));
+	CHECK(dj["a"].size() == 2);
+
+	dj.unserialize(R({ "a": [[1,2],[3,4,5]] }));
+	CHECK(dj["a"].size() == 2);
+	CHECK(dj["a"][0].size() == 2);
+	CHECK(dj["a"][1].size() == 3);
+	CHECK((dj["a"][0][1] == 2));
+	CHECK((dj["a"][1][2] == 5));
+
+	dj.unserialize(R({ "a": [{"b":8},234,"abc",[123]] }));
+	dj.dump();
+	CHECK((dj["a"].size() == 4));
+	CHECK((dj["a"][0]["b"] == 8));
+	CHECK((dj["a"][1] == 234));
+	CHECK((dj["a"][2] == "abc"));
+	CHECK((dj["a"][3][0] == 123));
+}
