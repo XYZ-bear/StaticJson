@@ -21,10 +21,10 @@ class name :public json_base<name>
 name;																																\
 private:																															\
 	bool unserialize_##name( const char** begin,const char* end) {																	\
-		return parser::unserialize(&name,begin,end);																						\
+		return parser::unserialize(&name,begin,end);																				\
 	}																																\
 	void serialize_##name(string &res) {																							\
-		parser::serialize(&name,res);																										\
+		parser::serialize(&name,res);																								\
 	}																																\
 	class class__##name:private static_instance<class__##name>{																		\
 	public:																															\
@@ -251,6 +251,15 @@ public:
 		}
 	}
 
+	static void skip_value(const char** begin, const char* end) {
+		while (char ch = **begin) {
+			if (ch == json_key_symbol::next_key_value || ch == json_key_symbol::object_end || ch == json_key_symbol::array_end) {
+				return;
+			}
+			get_next(begin, end);
+		}
+	}
+
 	static size_t get_array_size(const char* begin, const char* end) {
 		int size = 0;
 		while (char ch = get_cur_and_next(&begin, end)) {
@@ -280,11 +289,11 @@ public:
 		}
 	}
 
-	static void skip_space(const char** begin, const char* end) {
+	inline static void skip_space(const char** begin, const char* end) {
 		while (char ch = **begin) {
 			if (!is_ctr_or_space_char(ch))
 				return;
-			ch = get_next(begin, end);
+			get_next(begin, end);
 		}
 	}
 

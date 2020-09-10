@@ -10,112 +10,129 @@ struct info
 	int off;
 };
 
+//class mystack {
+//public:
+//	info vec[50];
+//	int i = -1;
+//	void push(info in) {
+//		vec[++i] = in;
+//	}
+//	info& top() {
+//		return vec[i];
+//	}
+//	void pop() {
+//		i--;
+//	}
+//};
+
 class mystack {
 public:
-	info vec[50];
-	int size = -1;
-	info& push() {
-		return vec[++size];
-		//size++;
+	vector<info> vec;
+	mystack() {
+		vec.reserve(50);
 	}
-	void pop() {
-		size--;
+	void push(const info& in) {
+		vec.emplace_back(in);
 	}
 	info& top() {
-		return vec[size];
+		return vec.back();
+	}
+	void pop() {
+		vec.pop_back();
 	}
 };
 
 class no_recursion :public dynamic_json {
 public:
-
-	void skip_value(const char** begin, const char* end) {
-		while (char ch = **begin) {
-			if (ch == json_key_symbol::next_key_value || ch == json_key_symbol::object_end || ch == json_key_symbol::array_end) {
-				return;
-			}
-			get_next(begin,end);
-		}
-	}
-
 	char inline get_cur_and_next(const char** begin, const char* end) {
 		return *((*begin)++);
 	}
 
 	void parse(const char** begin,const char* end) {
-		skip_space(begin, end);
+		//stack<info> is_obj;
 		mystack is_obj;
+		parser::skip_space(begin, end);
+
+		if (**begin == parser::json_key_symbol::object_begin) {
+			push_head_and_set(type_flag_t::obj_t);
+			set_child_or_length();
+		}
+		else if(**begin == parser::json_key_symbol::array_begin) {
+			push_head_and_set(type_flag_t::arr_t);
+			set_child_or_length();
+		}
 		while (char ch = parser::get_cur_and_next(begin, end)) {
 			if (ch == parser::json_key_symbol::next_key_value) {
-				//json_data.set_next(json_data.data.size());
-				json_data.h->n = json_data.data.size();
+				set_next();
+				parser::skip_space(begin, end);
 			}
 			else if (ch == parser::json_key_symbol::object_begin ) {
-				size_t off = (const char*)json_data.h - json_data.data.data();
-				json_data.set_flag(type_flag_t::obj_t);
-				if (json_data.h->t != type_flag_t::obj_t) {
-					json_data.push_head_and_set(type_flag_t::obj_t);
-					json_data.set_child_or_length();
-				}
-				//else
-					
-				if (**begin == json_key_symbol::object_end) {
-					get_next(begin, end);
-					skip_space(begin, end);
-					json_data.h->cl = 0;
+			obj_begin:
+				parser::skip_space(begin, end);
+				if (**begin == parser::json_key_symbol::object_end) {
+					parser::get_next(begin, end);
+					parser::skip_space(begin, end);
+					set_empty_child_or_length();
 					continue;
 				}
-				else {
- 					is_obj.push() ={true,(int)off };
-				}
+
+				//set the pre_t as obj_t
+				set_flag(type_flag_t::obj_t);
+
+				//record the offset of the cur head
+				size_t off = get_off();
+
+				//is_obj.push() ={true,(int)off };
+				is_obj.push({ true,(int)off });
 			}
 			else if (ch == parser::json_key_symbol::array_begin) {
-				size_t off = (const char*)json_data.h - json_data.data.data();
-				json_data.set_flag(type_flag_t::arr_t);
-				if (json_data.h->t != type_flag_t::arr_t) {
-					json_data.push_head_and_set(type_flag_t::arr_t);
-					json_data.set_child_or_length();
-				}
-				//else
-					
-				if (**begin == json_key_symbol::array_end) {
-					get_next(begin, end);
-					skip_space(begin, end);
-					json_data.h->cl = 0;
+			arr_begin:
+				parser::skip_space(begin, end);
+				if (**begin == parser::json_key_symbol::array_end) {
+					parser::get_next(begin, end);
+					parser::skip_space(begin, end);
+					set_empty_child_or_length();
 					continue;
 				}
-				else {
-					is_obj.push() = { false,(int)off };
-				}
+
+				size_t off = get_off();
+				set_flag(type_flag_t::arr_t);
+
+				is_obj.push({ false,(int)off });
 			}
 			else if (ch == parser::json_key_symbol::object_end) {
-				json_data.set_next(is_obj.top().off);
-				skip_space(begin, end);
+			obj_end:
+				parser::skip_space(begin, end);
 				if (**begin != parser::json_key_symbol::next_key_value) {
-					json_data.set_empty_next(is_obj.top().off);
+					set_empty_next(is_obj.top().off);
 				}
-				else
-					get_next(begin, end);
+				else {
+					set_next(is_obj.top().off);
+					parser::get_next(begin, end);
+				}
 				is_obj.pop();
 				continue;
 			}
 			else if (ch == parser::json_key_symbol::array_end) {
-				json_data.set_next(is_obj.top().off);
-				skip_space(begin, end);
+			arr_end:
+				parser::skip_space(begin, end);
 				if (**begin != parser::json_key_symbol::next_key_value) {
-					json_data.set_empty_next(is_obj.top().off);
-					//get_next(begin, end);
+					set_empty_next(is_obj.top().off);
 				}
-				else
-					get_next(begin, end);
+				else {
+					set_next(is_obj.top().off);
+					parser::get_next(begin, end);
+				}
 				is_obj.pop();
 				continue;
 			}
 
-			skip_space(begin, end);
+
+			parser::skip_space(begin, end);
+			//obj with key
 			if (is_obj.top().flag) {
 				if (**begin == parser::json_key_symbol::str) {
-					get_next(begin, end);
+					parser::get_next(begin, end);
 				}
 				const char* b = *begin;
 				parser::skip_str(begin, end);
@@ -124,28 +141,35 @@ public:
 		/*		if (key == "since_id_str") {
 					cout << "err";
 				}*/
-				json_data.push_head_and_set(type_flag_t::pre_t, b, *begin - b - 1);
-				skip_space(begin, end);
-				if (**begin == json_key_symbol::key_value_separator) {
-					get_next(begin, end);
+				push_head_and_set(type_flag_t::pre_t, b, *begin - b - 1);
+				parser::skip_space(begin, end);
+				if (**begin == parser::json_key_symbol::key_value_separator) {
+					parser::get_next(begin, end);
 				}
 			}
+			else {
+				push_head_and_set(type_flag_t::pre_t);
+			}
 
-			skip_space(begin, end);
+			parser::skip_space(begin, end);
 			if (char ch = **begin) {
 				if (ch == parser::json_key_symbol::str) {
-					get_next(begin, end);
+					parser::get_next(begin, end);
 					const char* b = *begin;
 					parser::skip_str(begin, end);
 					//string key(b, *begin - b - 1);
 					//cout << key << endl;
-					json_data.push_str_and_set(b, *begin - b - 1);
+					push_str_and_set(b, *begin - b - 1);
 				}
 				else if (ch == parser::json_key_symbol::object_begin) {
-					continue;
+					parser::get_next(begin, end);
+					goto obj_begin;
+					//continue;
 				}
 				else if (ch == parser::json_key_symbol::array_begin) {
-					continue;
+					parser::get_next(begin, end);
+					goto arr_begin;
+					//continue;
 				}
 				else {
 					//const char* b = *begin;
@@ -154,24 +178,24 @@ public:
 					//cout << key << endl;
 					if (ch == 'f') {
 						*begin += 5;
-						json_data.push_num(0);
+						push_num(0);
 					}
 					else if (ch == 't' || ch == 'n') {
 						*begin += 4;
-						json_data.push_num(0);
+						push_num(0);
 					}
 					else {
-						parser::unserialize(&json_data.push_num(), begin, end);
+						parser::unserialize(&push_num(), begin, end);
 					}
 				}
 			}
-			skip_space(begin, end);
+			parser::skip_space(begin, end);
 		}
 	}
 
 	size_t unserialize(const char* json, size_t size = 0) {
-		json_data.data.resize(0);
-		json_data.h = (head_t*)json_data.data.data();
+		//data.resize(0);
+		init();
 		const char* begin = json;
 		const char* end = nullptr;
 		if (size > 0)
