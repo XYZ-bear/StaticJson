@@ -4,6 +4,8 @@
 #include "dynamic.h"
 #include "perf.h"
 
+extern void get_file(string path, string &res);
+
 TEST_CASE("dynamic add test") {
 	dynamic_json dj;
 
@@ -47,18 +49,6 @@ TEST_CASE("dynamic add test") {
 
 
 TEST_CASE("araay test") {
-	dynamic_json dj;
-
-	//dj[0] = 123;
-	//dj[1] = 456;
-	//CHECK(dj.get_int(0) == 123);
-	//CHECK(dj.get_int(1) == 456);
-	//CHECK(dj.is_array() == true);
-
-	//dj is array, can't add key-val
-	//dj["a"][0] = 456;
-	//CHECK(!(dj["a"][0] == 0));
-
 	dynamic_json dj2;
 	dj2["c"]["d"] = 14;
 	dj2["c"]["e"] = "hello";
@@ -101,10 +91,64 @@ TEST_CASE("parse test") {
 	CHECK((dj["a"][1][2] == 5));
 
 	dj.unserialize(R({ "a": [{"b":8},234,"abc",[123]] }));
-	dj.dump();
 	CHECK((dj["a"].size() == 4));
 	CHECK((dj["a"][0]["b"] == 8));
 	CHECK((dj["a"][1] == 234));
 	CHECK((dj["a"][2] == "abc"));
 	CHECK((dj["a"][3][0] == 123));
+
+	dj.unserialize(R({ "a": [],"b" : {} }));
+	cout << dj["a"].size();
+	CHECK((dj["a"].size() == 0));
+	CHECK((dj["b"].size() == 0));
+
+	dj.unserialize(R({]));
+	dj.unserialize(R({"":12}));
+
+	dj.unserialize(R({ "a": [{"b":8},234,"abc",[123]] }}}}));
+	dj.unserialize(R(,"a": [{"b":8},234,"abc",[123]] }}}}));
+
+	dj.unserialize(R({ "a": [[[1,2],[3,4,5]],[[1,2],[3,4,5]]] }));
+	dj.dump();
+	for (int i = 1; i < 34; i++) {
+		string path = ".//data//jsonchecker//fail";
+		if (i < 10)
+			path += '0';
+		path += to_string(i);
+		path += ".json";
+		string js;
+		get_file(path, js);
+		
+		if (js.size() > 0) {
+			cout << path << ":";
+			dynamic_json dj;
+			cout << dj.unserialize(js.data()) << endl;
+		}
+	}
+
+	for (int i = 1; i < 4; i++) {
+		string path = ".//data//jsonchecker//pass";
+		if (i < 10)
+			path += '0';
+		path += to_string(i);
+		path += ".json";
+		string js;
+		get_file(path, js);
+
+		if (js.size() > 0) {
+			cout << path << ":";
+			dynamic_json dj;
+			cout << dj.unserialize(js.data()) << endl;
+		}
+	}
+
+	string js;
+	get_file(".//data//pass01.json", js);
+
+	PERF(t1, 1) {
+		dynamic_json dj;
+		dj.unserialize(js.data());
+		dj.dump();
+	}
 }
+

@@ -278,15 +278,19 @@ public:
 		return 0;
 	}
 
-	static void skip_str(const char** begin, const char* end) {
+	static size_t skip_str(const char** begin, const char* end) {
+		size_t i = 0;
 		while (char ch = get_cur_and_next(begin, end)) {
 			if (ch == json_key_symbol::str) {
-				return;
+				return i;
 			}
 			else if (ch == '\\') {
-				ch = get_cur_and_next(begin, end);
+				get_cur_and_next(begin, end);
+				i++;
 			}
+			i++;
 		}
+		return i;
 	}
 
 	inline static void skip_space(const char** begin, const char* end) {

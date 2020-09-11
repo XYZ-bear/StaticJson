@@ -3,12 +3,17 @@
 #include "static_json.h"
 #include <vector>
 
-/*
+/*Linear chain storage structure
+Linear: Physical Structure,line memory space,like vector,
+Chain: Logical Structure, the nodes linked by logical
+
+In this structure, we can estimate the size of space in advance by the json length, and release the space once time
+When visit the nodes, we can visit the brother nodes and child nodes by the head info
+
 |---- | -------|---- | -------|---- | -------|---- | -------
   head	value   head	value   head	value  head	value ......
  -------------- -------------- -------------- --------------
 	 node1           node2           node3        node4
-
 
 head -> |-------------|
 			t(char)		the value type number, string, object, array
@@ -23,8 +28,6 @@ key ->  |-------------|
 value ->|-------------|
 			value
 			.......
-
-
 */
 
 struct json_value {
@@ -301,11 +304,11 @@ public:
 		head_t *th = (head_t*)(data.data() + h->cl);
 		const char* kkk = h->get_key();
 		bool is_arr = false;
-		bool is_obj = false;
+		bool stack = false;
 		if (h->t == type_flag_t::obj_t) {
 			//	cout << "\"" << th->get_key() << "\":";
 			cout << "{";
-			is_obj = true;
+			stack = true;
 		}
 		else if (h->t == type_flag_t::arr_t) {
 			is_arr = true;
@@ -322,22 +325,28 @@ public:
 						h = th;
 						dump();
 					}
+					else {
+						if (th->t == obj_t) {
+							cout << "{},";
+						}
+						else {
+							cout << "[],";
+						}
+					}
 				}
+				if (stack && th->kl)
+					cout << "\"" << th->get_key() << "\":";
 				if (th->t == type_flag_t::num_t) {
-					if (is_obj && th->kl)
-						cout << "\"" << th->get_key() << "\":";
 					cout << th->get_double() << ",";
 				}
 				else if (th->t == type_flag_t::str_t) {
-					if (is_obj && th->kl)
-						cout << "\"" << th->get_key() << "\":";
 					cout << "\"" << th->get_string() << "\",";
 				}
 			}
 			// return the end head
 			if (!th->n) {
 				cout << "\b";
-				if (is_obj)
+				if (stack)
 					cout << "},";
 				if (is_arr)
 					cout << "],";
@@ -352,7 +361,7 @@ private:
 	json_value(const json_value &v) {}
 
 	length_t count_size() {
-		if (h && h->t == type_flag_t::arr_t) {
+		if (h && h->t == type_flag_t::arr_t && h->cl) {
 			// point to the child begin
 			head_t *th = (head_t*)(data.data() + h->cl);
 			length_t i = 0;
@@ -473,8 +482,8 @@ protected:
 	}
 
 	void set_empty_next(int off) {
-		head_t *th = (head_t*)(data.data() + off);
-		th->n = 0;
+		h = (head_t*)(data.data() + off);
+		h->n = 0;
 	}
 
 	void set_child_or_length() {
@@ -520,10 +529,8 @@ protected:
 	}
 
 	void set_flag(char f) {
-		if (h->t == type_flag_t::pre_t) {
-			h->t = f;
-			h->cl = data.size();
-		}
+		h->t = f;
+		h->cl = data.size();
 	}
 
 	head_t& push_head_from(flag_t t, head_t* from) {
@@ -581,7 +588,7 @@ private:
 
 
 
-
+#define ERROR_RETURT(pos) cout << "[error]:" << pos << endl;return false;
 
 
 class dynamic_json :public json_value {
@@ -593,7 +600,7 @@ public:
 private:
 	struct info
 	{
-		bool flag;
+		bool is_obj;
 		int off;
 	};
 
@@ -612,114 +619,135 @@ private:
 		void pop() {
 			vec.pop_back();
 		}
+		size_t size() {
+			return vec.size();
+		}
 	};
 	char inline get_cur_and_next(const char** begin, const char* end) {
 		return *((*begin)++);
 	}
 
-	void parse(const char** begin, const char* end) {
-		//stack<info> is_obj;
-		mystack is_obj;
+	//Non recursive implementation, so there is no limit on the depth, it is up on your memory size
+	//nested grammer
+	//obj:{ -> "key" -> : -> value -> }
+	//arr:[ -> value -> ]
+	bool parse(const char** begin, const char* end) {
+		mystack stack;
 		parser::skip_space(begin, end);
 
-		//if (**begin == parser::json_key_symbol::object_begin) {
-		//	push_head_and_set(type_flag_t::obj_t);
-		//	set_child_or_length();
-		//}
-		//else if (**begin == parser::json_key_symbol::array_begin) {
-		//	push_head_and_set(type_flag_t::arr_t);
-		//	set_child_or_length();
-		//}
 		while (char ch = parser::get_cur_and_next(begin, end)) {
+			//step 1: check start tokens , [ {
+			//--------------------------------------------------------
 			parser::skip_space(begin, end);
+			// , end and begin token
 			if (ch == parser::json_key_symbol::next_key_value) {
 				set_next();
-				//parser::skip_space(begin, end);
 			}
 			else if (ch == parser::json_key_symbol::object_begin) {
-				//parser::skip_space(begin, end);
-				if (**begin == parser::json_key_symbol::object_end) {
-					parser::get_next(begin, end);
-					parser::skip_space(begin, end);
-					set_empty_child_or_length();
-					continue;
-				}
-
 				if (get_flag() == type_flag_t::pre_t)
 					set_flag(type_flag_t::obj_t);
 				else {
 					push_head_and_set(type_flag_t::obj_t);
 					set_child_or_length();
 				}
-				//set the pre_t as obj_t
-				//set_flag(type_flag_t::obj_t);
-
-				//record the offset of the cur head
-				is_obj.push({ true,(int)get_off() });
+				stack.push({ true,(int)get_off() });
 			}
 			else if (ch == parser::json_key_symbol::array_begin) {
-				//parser::skip_space(begin, end);
+				//[], empty array
 				if (**begin == parser::json_key_symbol::array_end) {
 					parser::get_next(begin, end);
 					parser::skip_space(begin, end);
+					set_flag(type_flag_t::arr_t);
 					set_empty_child_or_length();
 					continue;
 				}
+				//[x,x,x] and [],[],[]
 				if (get_flag() == type_flag_t::pre_t)
 					set_flag(type_flag_t::arr_t);
 				else {
 					push_head_and_set(type_flag_t::arr_t);
 					set_child_or_length();
 				}
-				is_obj.push({ false,(int)get_off() });
+				stack.push({ false,(int)get_off() });
 			}
 			else if (ch == parser::json_key_symbol::object_end) {
-				//parser::skip_space(begin, end);
-				set_empty_next(is_obj.top().off);
-				set_head(is_obj.top().off);
-				is_obj.pop();
+				if (stack.size() > 0 && stack.top().is_obj) {
+					set_head(stack.top().off);
+					stack.pop();
+				}
+				else {
+					ERROR_RETURT(*begin);
+				}
 				parser::skip_space(begin, end);
 				continue;
 			}
 			else if (ch == parser::json_key_symbol::array_end) {
-				//parser::skip_space(begin, end);
-				set_empty_next(is_obj.top().off);
-				set_head(is_obj.top().off);
-				is_obj.pop();
+				if (stack.size() > 0 && !stack.top().is_obj) {
+					set_head(stack.top().off);
+					stack.pop();
+				}
+				else {
+					ERROR_RETURT(*begin);
+				}
 				parser::skip_space(begin, end);
 				continue;
 			}
+			if (stack.size() == 0) {
+				ERROR_RETURT(*begin);
+			}
 
+			//step 2: parse key
+			//-----------------------------------------------------------
+			//{ "x":x } obj head with key ,or [x,x,x] arr head without key 
 			parser::skip_space(begin, end);
-			//obj with key
-			if (is_obj.top().flag) {
-				if (**begin == parser::json_key_symbol::str) {
-					parser::get_next(begin, end);
+			if (stack.top().is_obj) {
+				if (ch = get_cur_and_next(begin, end)) {
+					//key must start with quote
+					if (ch == parser::json_key_symbol::str) {
+						//push head
+						const char* b = *begin;
+						push_head_and_set(type_flag_t::pre_t, b, parser::skip_str(begin, end));
+
+						//check key_value separator
+						parser::skip_space(begin, end);
+						if (get_cur_and_next(begin, end) != parser::json_key_symbol::key_value_separator) {
+							ERROR_RETURT(*begin);
+						}
+					}
+					//if no value pop stack
+					else if (ch == parser::json_key_symbol::object_end) {
+						set_empty_child_or_length();
+						stack.pop();
+						continue;
+					}
+					else {
+						//error format
+						ERROR_RETURT(*begin);
+					}
 				}
-				const char* b = *begin;
-				parser::skip_str(begin, end);
-				push_head_and_set(type_flag_t::pre_t, b, *begin - b - 1);
-				parser::skip_space(begin, end);
-				if (**begin == parser::json_key_symbol::key_value_separator) {
-					parser::get_next(begin, end);
+				else {
+					//error format
+					ERROR_RETURT(*begin);
 				}
 			}
 			else {
 				push_head_and_set(type_flag_t::pre_t);
 			}
 
+			//step 3: parse value
+			//-----------------------------------------------------------
 			parser::skip_space(begin, end);
 			if (char ch = **begin) {
 				if (ch == parser::json_key_symbol::str) {
 					parser::get_next(begin, end);
 					const char* b = *begin;
-					parser::skip_str(begin, end);
-					push_str_and_set(b, *begin - b - 1);
+					push_str_and_set(b, parser::skip_str(begin, end));
 				}
 				else if (ch == parser::json_key_symbol::object_begin) {
 					continue;
 				}
 				else if (ch == parser::json_key_symbol::array_begin) {
+					//set_flag(type_flag_t::arr_t);
 					continue;
 				}
 				else {
@@ -738,22 +766,20 @@ private:
 			}
 			parser::skip_space(begin, end);
 
-			if (**begin == parser::json_key_symbol::object_end) {
-				//parser::skip_space(begin, end);
-				set_head(is_obj.top().off);
-				is_obj.pop();
-				parser::get_next(begin, end);
-				parser::skip_space(begin, end);
+			//step 4: check end tokens
+			//-----------------------------------------------------------
+			//check end token only } ] , is allowed
+			if (**begin == parser::json_key_symbol::next_key_value || **begin == parser::json_key_symbol::object_end || **begin == parser::json_key_symbol::array_end) {
+				continue;
 			}
-			else if (**begin == parser::json_key_symbol::array_end) {
-				//parser::skip_space(begin, end);
-				set_head(is_obj.top().off);
-				is_obj.pop();
-				parser::get_next(begin, end);
-				parser::skip_space(begin, end);
-			}
-			
+
+			ERROR_RETURT(*begin);
+			//-----------------------------------------------------------
 		}
+
+		if (stack.size() == 0)
+			return true;
+		return false;
 	}
 public:
 	//json_value json_data;
@@ -780,7 +806,8 @@ public:
 		const char* end = nullptr;
 		if (size > 0)
 			end = begin + size;
-		parse(&begin, end);
-		return begin - json;
+		if (parse(&begin, end))
+			return begin - json;
+		return 0;
 	}
 };
