@@ -30,12 +30,34 @@ value ->|-------------|
 			.......
 */
 
+template <class T>
+class iter :public iterator<input_iterator_tag, T>
+{
+public:
+	iter(T * pp,int o) :p(pp),off(o) {}
+	iter(const iter<T> &i) :p(i.p) {}
+	iter<T> & operator = (const iter<T>& i) { p = i.p; return *this; }
+	bool operator != (const iter<T>& i) { 
+		if (off == i.off)
+			return false;
+		return true;
+	}
+	T & operator *() { return *p; }
+	T & operator ++() { 
+		off = ++(*p);
+		return *p;
+	}
+private:
+	T * p;
+	int off;
+};
+
 struct json_value {
 protected:
 	typedef char flag_t;
 	typedef uint32_t next_t;
 	typedef uint32_t length_t;
-	typedef double number_t;
+	typedef uint64_t number_t;
 	typedef uint8_t key_t;
 	enum type_flag_t
 	{
@@ -89,23 +111,19 @@ protected:
 			return kl == 0 ? (char*)this + head_size() + kl : (char*)this + head_size() + kl + 1;
 		}
 
-		void set_int(int num) {
-			*(double*)(get_val()) = num;
+		template<class N>
+		void set_num(N num) {
+			*(N*)(get_val()) = num;
 		}
 
 		void set_string(const char* str, length_t len) {
 			memcpy(get_val(), str, len);
 		}
 
-		int get_int() {
+		template<class N>
+		N get_num() {
 			if (t == type_flag_t::num_t)
-				return *(double*)(get_val());
-			return 0;
-		}
-
-		double get_double() {
-			if (t == type_flag_t::num_t)
-				return *(double*)(get_val());
+				return *(N*)(get_val());
 			return 0;
 		}
 
@@ -123,16 +141,21 @@ protected:
 				return true;
 			return false;
 		}
-
-		bool equal(int num) {
-			if (get_int() == num)
-				return true;
-			return false;
-		}
 	};
 #pragma pack(pop)
 public:
 	json_value() {
+	}
+
+	iter<json_value> begin() {
+		if (h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) {
+			h = (head_t*)(data.data() + h->cl);
+		}
+		return iter<json_value>(this,h->n);
+	}
+
+	iter<json_value> end() {
+		return iter<json_value>(this, 0);
 	}
 
 	json_value& operator [] (const char* key) {
@@ -185,10 +208,20 @@ public:
 		return *this;
 	}
 
-	void operator = (int num) {
+	int operator ++() {
+		if (h->n) {
+			h = (head_t*)(data.data() + h->n);
+			return 1;
+		}
+		else
+			return 0;
+	}
+
+	template<class N>
+	void operator = (N num) {
 		if (h) {
 			if (h->t == type_flag_t::num_t)
-				h->set_int(num);
+				h->set_num(num);
 			else if (h->t == type_flag_t::pre_t) {
 				push_num(num);
 			}
@@ -226,14 +259,10 @@ public:
 		}
 	}
 
-	operator double()
+	template<class T>
+	operator T()
 	{
-		return h->get_double();
-	}
-
-	operator int()
-	{
-		return h->get_int();
+		return h->get_num<T>();
 	}
 
 	operator string() {
@@ -253,15 +282,12 @@ public:
 			return false;
 	}
 
-	bool operator == (int num) {
+	template<class N>
+	bool operator == (N num) {
 		if (h->t == type_flag_t::num_t)
-			return h->equal(num);
+			return h->get_num<N>() == num;
 		else
 			return false;
-	}
-
-	bool operator == (const json_value &d) {
-		return true;
 	}
 
 	void erase() {
@@ -298,6 +324,10 @@ public:
 		if (h->t == type_flag_t::arr_t || h->t == type_flag_t::obj_t)
 			return count_size();
 		return h->cl;
+	}
+
+	const char* key() {
+		return h->get_key();
 	}
 
 	void dump() {
@@ -337,7 +367,7 @@ public:
 				if (stack && th->kl)
 					cout << "\"" << th->get_key() << "\":";
 				if (th->t == type_flag_t::num_t) {
-					cout << th->get_double() << ",";
+					cout << th->get_num<int>() << ",";
 				}
 				else if (th->t == type_flag_t::str_t) {
 					cout << "\"" << th->get_string() << "\",";
@@ -578,7 +608,16 @@ protected:
 		length_t head_off = (const char*)h - data.data();
 		data.resize(data.size() + sizeof(number_t));
 		h = (head_t*)(data.data() + head_off);
-		h->set_int(num);
+		h->set_num(num);
+	}
+
+	template<class N>
+	inline void push_num(N num) {
+		h->t = type_flag_t::num_t;
+		length_t head_off = (const char*)h - data.data();
+		data.resize(data.size() + sizeof(number_t));
+		h = (head_t*)(data.data() + head_off);
+		h->set_num(num);
 	}
 
 private:
@@ -623,22 +662,19 @@ private:
 			return vec.size();
 		}
 	};
-	char inline get_cur_and_next(const char** begin, const char* end) {
-		return *((*begin)++);
-	}
 
 	//Non recursive implementation, so there is no limit on the depth, it is up on your memory size
 	//nested grammer
 	//obj:{ -> "key" -> : -> value -> }
 	//arr:[ -> value -> ]
-	bool parse(const char** begin, const char* end) {
+	bool parse(json_stream &js) {
 		mystack stack;
-		parser::skip_space(begin, end);
+		parser::skip_space(js);
 
-		while (char ch = parser::get_cur_and_next(begin, end)) {
+		while (char ch = parser::get_cur_and_next(js)) {
 			//step 1: check start tokens , [ {
 			//--------------------------------------------------------
-			parser::skip_space(begin, end);
+			parser::skip_space(js);
 			// , end and begin token
 			if (ch == parser::json_key_symbol::next_key_value) {
 				set_next();
@@ -654,9 +690,9 @@ private:
 			}
 			else if (ch == parser::json_key_symbol::array_begin) {
 				//[], empty array
-				if (**begin == parser::json_key_symbol::array_end) {
-					parser::get_next(begin, end);
-					parser::skip_space(begin, end);
+				if (*js.begin == parser::json_key_symbol::array_end) {
+					parser::get_next(js);
+					parser::skip_space(js);
 					set_flag(type_flag_t::arr_t);
 					set_empty_child_or_length();
 					continue;
@@ -676,9 +712,9 @@ private:
 					stack.pop();
 				}
 				else {
-					ERROR_RETURT(*begin);
+					ERROR_RETURT(js.begin);
 				}
-				parser::skip_space(begin, end);
+				parser::skip_space(js);
 				continue;
 			}
 			else if (ch == parser::json_key_symbol::array_end) {
@@ -687,31 +723,31 @@ private:
 					stack.pop();
 				}
 				else {
-					ERROR_RETURT(*begin);
+					ERROR_RETURT(js.begin);
 				}
-				parser::skip_space(begin, end);
+				parser::skip_space(js);
 				continue;
 			}
 			if (stack.size() == 0) {
-				ERROR_RETURT(*begin);
+				ERROR_RETURT(js.begin);
 			}
 
 			//step 2: parse key
 			//-----------------------------------------------------------
 			//{ "x":x } obj head with key ,or [x,x,x] arr head without key 
-			parser::skip_space(begin, end);
+			parser::skip_space(js);
 			if (stack.top().is_obj) {
-				if (ch = get_cur_and_next(begin, end)) {
+				if (ch = parser::get_cur_and_next(js)) {
 					//key must start with quote
 					if (ch == parser::json_key_symbol::str) {
 						//push head
-						const char* b = *begin;
-						push_head_and_set(type_flag_t::pre_t, b, parser::skip_str(begin, end));
+						const char* b = js.begin;
+						push_head_and_set(type_flag_t::pre_t, b, parser::skip_str(js));
 
 						//check key_value separator
-						parser::skip_space(begin, end);
-						if (get_cur_and_next(begin, end) != parser::json_key_symbol::key_value_separator) {
-							ERROR_RETURT(*begin);
+						parser::skip_space(js);
+						if (parser::get_cur_and_next(js) != parser::json_key_symbol::key_value_separator) {
+							ERROR_RETURT(js.begin);
 						}
 					}
 					//if no value pop stack
@@ -722,12 +758,12 @@ private:
 					}
 					else {
 						//error format
-						ERROR_RETURT(*begin);
+						ERROR_RETURT(js.begin);
 					}
 				}
 				else {
 					//error format
-					ERROR_RETURT(*begin);
+					ERROR_RETURT(js.begin);
 				}
 			}
 			else {
@@ -736,12 +772,12 @@ private:
 
 			//step 3: parse value
 			//-----------------------------------------------------------
-			parser::skip_space(begin, end);
-			if (char ch = **begin) {
+			parser::skip_space(js);
+			if (char ch = *js.begin) {
 				if (ch == parser::json_key_symbol::str) {
-					parser::get_next(begin, end);
-					const char* b = *begin;
-					push_str_and_set(b, parser::skip_str(begin, end));
+					parser::get_next(js);
+					const char* b = js.begin;
+					push_str_and_set(b, parser::skip_str(js));
 				}
 				else if (ch == parser::json_key_symbol::object_begin) {
 					continue;
@@ -752,28 +788,28 @@ private:
 				}
 				else {
 					if (ch == 'f') {
-						*begin += 5;
+						js.begin += 5;
 						push_num(0);
 					}
 					else if (ch == 't' || ch == 'n') {
-						*begin += 4;
+						js.begin += 4;
 						push_num(0);
 					}
 					else {
-						parser::unserialize(&push_num(), begin, end);
+						parser::unserialize(&push_num(), js);
 					}
 				}
 			}
-			parser::skip_space(begin, end);
+			parser::skip_space(js);
 
 			//step 4: check end tokens
 			//-----------------------------------------------------------
 			//check end token only } ] , is allowed
-			if (**begin == parser::json_key_symbol::next_key_value || **begin == parser::json_key_symbol::object_end || **begin == parser::json_key_symbol::array_end) {
+			if (*js.begin == parser::json_key_symbol::next_key_value || *js.begin == parser::json_key_symbol::object_end || *js.begin == parser::json_key_symbol::array_end) {
 				continue;
 			}
 
-			ERROR_RETURT(*begin);
+			ERROR_RETURT(js.begin);
 			//-----------------------------------------------------------
 		}
 
@@ -806,8 +842,9 @@ public:
 		const char* end = nullptr;
 		if (size > 0)
 			end = begin + size;
-		if (parse(&begin, end))
-			return begin - json;
+		json_stream js{ begin,end };
+		if (parse(js))
+			return js.begin - json;
 		return 0;
 	}
 };

@@ -48,6 +48,34 @@ TEST_CASE("dynamic add test") {
 }
 
 
+TEST_CASE("num limit test") {
+	dynamic_json dj;
+
+	dj["a"] = 18446744073709551615;
+	CHECK((dj["a"] == 18446744073709551615));
+
+	dj.unserialize(R({ "a":18446744073709551615 }));
+	CHECK((dj["a"] == 18446744073709551615));
+
+	dj["a"] = 9, 223, 372, 036, 854, 775, 808;
+	CHECK((dj["a"] == 9, 223, 372, 036, 854, 775, 808));
+
+	dj["a"] = -9, 223, 372, 036, 854, 775, 808;
+	CHECK((dj["a"] == -9, 223, 372, 036, 854, 775, 808));
+
+	dj["a"] = 1.79769e+308;
+	CHECK((dj["a"] == 1.79769e+308));
+
+	dj["a"] = 2.22507e-308;
+	CHECK((dj["a"] == 2.22507e-308));
+
+	dj["a"] = 23456789012E66;
+	CHECK((dj["a"] == 23456789012E66));
+	
+	dj.unserialize(R({ "a":23456789012E66 }));
+	CHECK((dj["a"] == 23456789012E66));
+}
+
 TEST_CASE("araay test") {
 	dynamic_json dj2;
 	dj2["c"]["d"] = 14;
@@ -102,14 +130,14 @@ TEST_CASE("parse test") {
 	CHECK((dj["a"].size() == 0));
 	CHECK((dj["b"].size() == 0));
 
-	dj.unserialize(R({]));
-	dj.unserialize(R({"":12}));
+	CHECK(dj.unserialize(R({])) == 0);
+	CHECK(dj.unserialize(R({"":12})));
 
-	dj.unserialize(R({ "a": [{"b":8},234,"abc",[123]] }}}}));
-	dj.unserialize(R(,"a": [{"b":8},234,"abc",[123]] }}}}));
+	CHECK(dj.unserialize(R({ "a": [{"b":8},234,"abc",[123]] }}}})) == 0);
+	CHECK(dj.unserialize(R(,"a": [{"b":8},234,"abc",[123]] }}}})) == 0);
 
-	dj.unserialize(R({ "a": [[[1,2],[3,4,5]],[[1,2],[3,4,5]]] }));
-	dj.dump();
+	CHECK(dj.unserialize(R({ "a": [[[1,2],[3,4,5]],[[1,2],[3,4,5]]] })));
+
 	for (int i = 1; i < 34; i++) {
 		string path = ".//data//jsonchecker//fail";
 		if (i < 10)
@@ -143,12 +171,19 @@ TEST_CASE("parse test") {
 	}
 
 	string js;
-	get_file(".//data//pass01.json", js);
+	get_file(".//data//twitter.json", js);
+	//cout << js.c_str();
+	//for (char ch : js)
+	//	cout << ch;
+
 
 	PERF(t1, 1) {
 		dynamic_json dj;
 		dj.unserialize(js.data());
-		dj.dump();
+		//for (auto &jk : dj) {
+		//	cout << jk.key() << endl;
+		//}
+		//dj.dump();
 	}
 }
 

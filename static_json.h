@@ -20,8 +20,8 @@ class name :public json_base<name>
 #define N(name)																														\
 name;																																\
 private:																															\
-	bool unserialize_##name( const char** begin,const char* end) {																	\
-		return parser::unserialize(&name,begin,end);																				\
+	bool unserialize_##name( json_stream &js) {																	\
+		return parser::unserialize(&name,js);																				\
 	}																																\
 	void serialize_##name(string &res) {																							\
 		parser::serialize(&name,res);																								\
@@ -41,14 +41,14 @@ public:
 
 #define STRNG_TO_NUM(data_t,methodl,methodf)	\
 char* endptr;									\
-*data = (data_t)methodl(*begin, &endptr, 10);	\
+*data = (data_t)methodl(js.begin, &endptr, 10);	\
 if (*endptr == '.')								\
-	*data = (data_t)methodf(*begin, &endptr);	\
-if (endptr == *begin) {							\
-	check_skip(begin, end);						\
+	*data = (data_t)methodf(js.begin, &endptr);	\
+if (endptr == js.begin) {							\
+	check_skip(js);						\
 	return false;								\
 }												\
-(*begin) = endptr;								\
+(js.begin) = endptr;								\
 return true;									\
 
 #define R(...) #__VA_ARGS__
@@ -83,7 +83,7 @@ namespace std {
 	template<>
 	struct hash<no_copy_string> {
 	public:
-		size_t operator()(const no_copy_string &p) const{
+		size_t operator()(const no_copy_string &p) const {
 			unsigned long h = 0;
 			const char *s = p.str;
 
@@ -100,7 +100,7 @@ namespace std {
 				else
 					h = 5 * h + *s;
 			}
-				
+
 			return size_t(h);
 		}
 
@@ -153,6 +153,11 @@ public:
 	}
 };
 
+struct json_stream {
+	const char* begin;
+	const char* end;
+};
+
 class parser {
 public:
 	enum json_key_symbol
@@ -169,12 +174,12 @@ public:
 		space = ' '
 	};
 public:
-	static bool parse_bool(bool &val, const char** begin, const char* end) {
+	static bool parse_bool(bool &val, json_stream &js) {
 		char t[5] = "true";
 		char f[6] = "false";
 		char index = 0;
-		if (**begin == 't') {
-			while (char ch = **begin) {
+		if (*js.begin == 't') {
+			while (char ch = *js.begin) {
 				if (index >= 4)
 					break;
 				else if (index < 4 && ch != t[index]) {
@@ -182,13 +187,13 @@ public:
 					return false;
 				}
 				index++;
-				ch = get_next(begin, end);
+				ch = get_next(js);
 			}
 			val = true;
 			return true;
 		}
-		else if (**begin == 'f') {
-			while (char ch = **begin) {
+		else if (*js.begin == 'f') {
+			while (char ch = *js.begin) {
 				if (index >= 5)
 					break;
 				else if (index < 5 && ch != f[index]) {
@@ -196,17 +201,17 @@ public:
 					return false;
 				}
 				index++;
-				ch = get_next(begin, end);
+				ch = get_next(js);
 			}
 			val = false;
 			return true;
 		}
 		else {
 			char* endptr;
-			val = strtol(*begin, &endptr, 10);
+			val = strtol(js.begin, &endptr, 10);
 			if (*endptr == '.')
-				val = strtof(*begin, &endptr);
-			if (endptr == *begin)
+				val = strtof(js.begin, &endptr);
+			if (endptr == js.begin)
 				return false;
 			else
 				return true;
@@ -220,54 +225,54 @@ public:
 		return (ch == ' ' || (ch >= 0x00 && ch <= 0x1F) || ch == 0x7F);
 	}
 
-	static void check_skip(const char** begin, const char* end) {
-		char ch = get_cur_and_next(begin, end);
+	static void check_skip(json_stream &js) {
+		char ch = get_cur_and_next(js);
 		if (ch == json_key_symbol::object_begin) {
-			skip_object(begin, end);
+			skip_object(js);
 		}
 		else if (ch == json_key_symbol::array_begin) {
-			skip_array(begin, end);
+			skip_array(js);
 		}
 		else if (ch == json_key_symbol::str) {
-			skip_str(begin, end);
+			skip_str(js);
 		}
 	}
 
-	static void skip_object(const char** begin, const char* end) {
-		while (char ch = get_cur_and_next(begin, end)) {
+	static void skip_object(json_stream &js) {
+		while (char ch = get_cur_and_next(js)) {
 			if (ch == json_key_symbol::object_begin)
-				skip_object(begin, end);
+				skip_object(js);
 			else if (ch == json_key_symbol::object_end)
 				return;
 		}
 	}
 
-	static void skip_array(const char** begin, const char* end) {
-		while (char ch = get_cur_and_next(begin, end)) {
+	static void skip_array(json_stream &js) {
+		while (char ch = get_cur_and_next(js)) {
 			if (ch == json_key_symbol::array_begin)
-				skip_array(begin, end);
+				skip_array(js);
 			else if (ch == json_key_symbol::array_end)
 				return;
 		}
 	}
 
-	static void skip_value(const char** begin, const char* end) {
-		while (char ch = **begin) {
+	static void skip_value(json_stream &js) {
+		while (char ch = *js.begin) {
 			if (ch == json_key_symbol::next_key_value || ch == json_key_symbol::object_end || ch == json_key_symbol::array_end) {
 				return;
 			}
-			get_next(begin, end);
+			get_next(js);
 		}
 	}
 
-	static size_t get_array_size(const char* begin, const char* end) {
+	static size_t get_array_size(json_stream &js) {
 		int size = 0;
-		while (char ch = get_cur_and_next(&begin, end)) {
+		while (char ch = get_cur_and_next(js)) {
 			if (ch == json_key_symbol::array_begin) {
-				skip_array(&begin, end);
+				skip_array(js);
 			}
 			else if (ch == json_key_symbol::object_begin) {
-				skip_object(&begin, end);
+				skip_object(js);
 			}
 			else if (ch == json_key_symbol::next_key_value) {
 				size++;
@@ -278,14 +283,14 @@ public:
 		return 0;
 	}
 
-	static size_t skip_str(const char** begin, const char* end) {
+	static size_t skip_str(json_stream &js) {
 		size_t i = 0;
-		while (char ch = get_cur_and_next(begin, end)) {
+		while (char ch = get_cur_and_next(js)) {
 			if (ch == json_key_symbol::str) {
 				return i;
 			}
 			else if (ch == '\\') {
-				get_cur_and_next(begin, end);
+				get_cur_and_next(js);
 				i++;
 			}
 			i++;
@@ -293,27 +298,27 @@ public:
 		return i;
 	}
 
-	inline static void skip_space(const char** begin, const char* end) {
-		while (char ch = **begin) {
+	inline static void skip_space(json_stream &js) {
+		while (char ch = *js.begin) {
 			if (!is_ctr_or_space_char(ch))
 				return;
-			get_next(begin, end);
+			get_next(js);
 		}
 	}
 
-	static char inline get_next(const char** begin, const char* end) {
-		(*begin)++;
-		if (end && end < *begin)
+	static char inline get_next(json_stream &js) {
+		(js.begin)++;
+		if (js.end && js.end < js.begin)
 			return '\0';
 		else
-			return **begin;
+			return *js.begin;
 	}
 public:
-	static char inline get_cur_and_next(const char** begin, const char* end) {
-		if (end && end < (*begin + 1))
+	static char inline get_cur_and_next(json_stream &js) {
+		if (js.end && js.end < (js.begin + 1))
 			return '\0';
 		else
-			return *((*begin)++);
+			return *((js.begin)++);
 	}
 
 	inline static void serialize(bool *data, string &res) {
@@ -392,109 +397,109 @@ public:
 		data->serialize(res);
 	}
 
-	inline static bool unserialize(bool *data, const char** begin, const char* end) {
-		if (!parse_bool(*data, begin, end)) {
-			check_skip(begin, end);
+	inline static bool unserialize(bool *data, json_stream &js) {
+		if (!parse_bool(*data, js)) {
+			check_skip(js);
 			return false;
 		}
 		return true;
 	}
 
-	inline static bool unserialize(int32_t *data, const char** begin, const char* end) {
+	inline static bool unserialize(int32_t *data, json_stream &js) {
 		STRNG_TO_NUM(int32_t, strtol, strtof);
 	}
-	inline static bool unserialize(int8_t *data, const char** begin, const char* end) {
+	inline static bool unserialize(int8_t *data, json_stream &js) {
 		STRNG_TO_NUM(int8_t, strtol, strtof);
 		return true;
 	}
-	inline static bool unserialize(int16_t *data, const char** begin, const char* end) {
+	inline static bool unserialize(int16_t *data, json_stream &js) {
 		STRNG_TO_NUM(int16_t, strtol, strtof);
 		return true;
 	}
-	inline static bool unserialize(int64_t *data, const char** begin, const char* end) {
+	inline static bool unserialize(int64_t *data, json_stream &js) {
 		STRNG_TO_NUM(int64_t, strtoll, strtod);
 	}
-	inline static bool unserialize(uint32_t *data, const char** begin, const char* end) {
+	inline static bool unserialize(uint32_t *data, json_stream &js) {
 		STRNG_TO_NUM(uint32_t, strtoul, strtod);
 	}
-	inline static bool unserialize(uint8_t *data, const char** begin, const char* end) {
+	inline static bool unserialize(uint8_t *data, json_stream &js) {
 		STRNG_TO_NUM(uint8_t, strtoul, strtod);
 	}
-	inline static bool unserialize(uint16_t *data, const char** begin, const char* end) {
+	inline static bool unserialize(uint16_t *data, json_stream &js) {
 		STRNG_TO_NUM(uint16_t, strtoul, strtod);
 	}
-	inline static bool unserialize(uint64_t *data, const char** begin, const char* end) {
+	inline static bool unserialize(uint64_t *data, json_stream &js) {
 		STRNG_TO_NUM(uint64_t, strtoull, strtod);
 	}
 
-	inline static bool unserialize(double *data, const char** begin, const char* end) {
+	inline static bool unserialize(double *data, json_stream &js) {
 		char *endptr;
-		*data = strtod(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
+		*data = strtod(js.begin, &endptr);
+		if (endptr == js.begin) {
+			check_skip(js);
 			return false;
 		}
-		(*begin) = endptr;
+		(js.begin) = endptr;
 		return true;
 	}
-	inline static bool unserialize(float *data, const char** begin, const char* end) {
+	inline static bool unserialize(float *data, json_stream &js) {
 		char *endptr;
-		*data = strtof(*begin, &endptr);
-		if (endptr == *begin) {
-			check_skip(begin, end);
+		*data = strtof(js.begin, &endptr);
+		if (endptr == js.begin) {
+			check_skip(js);
 			return false;
 		}
-		(*begin) = endptr;
+		(js.begin) = endptr;
 		return true;
 	}
-	inline static bool unserialize(string *data, const char** begin, const char* end) {
-		if (get_cur_and_next(begin, end) == json_key_symbol::str) {
-			parse_str(*data, begin, end);
+	inline static bool unserialize(string *data, json_stream &js) {
+		if (get_cur_and_next(js) == json_key_symbol::str) {
+			parse_str(*data, js);
 		}
 		else {
-			check_skip(begin, end);
+			check_skip(js);
 			return false;
 		}
 		return true;
 	}
 	template<class V>
-	inline static bool unserialize(V *data, const char** begin, const char* end) {
-		if (**begin == json_key_symbol::object_begin) {
-			if (end)
-				*begin += data->unserialize(*begin, end - *begin);
+	inline static bool unserialize(V *data, json_stream &js) {
+		if (*js.begin == json_key_symbol::object_begin) {
+			if (js.end)
+				js.begin += data->unserialize(js.begin, js.end - js.begin);
 			else
-				*begin += data->unserialize(*begin);
+				js.begin += data->unserialize(js.begin);
 		}
 		else {
-			check_skip(begin, end);
+			check_skip(js);
 			return false;
 		}
 		return true;
 	}
 
 	template<class V>
-	static bool unserialize(vector<V> *data, const char** begin, const char* end) {
+	static bool unserialize(vector<V> *data, json_stream &js) {
 		// skip the white space and control char
-		skip_space(begin, end);
+		skip_space(js);
 
 		//check the value type
-		if (**begin != json_key_symbol::array_begin) {
-			check_skip(begin, end);
+		if (*js.begin != json_key_symbol::array_begin) {
+			check_skip(js);
 			return false;
 		}
 
 		data->reserve(2);
-		while (char ch = get_cur_and_next(begin, end)) {
+		while (char ch = get_cur_and_next(js)) {
 			// '[' and ',' as the falg of value begin
 			if (ch == json_key_symbol::array_begin || ch == json_key_symbol::next_key_value) {
-				skip_space(begin, end);
+				skip_space(js);
 
-				if (**begin == json_key_symbol::array_end)
+				if (*js.begin == json_key_symbol::array_end)
 					return true;
 
 				size_t index = data->size();
 				data->resize(index + 1);
-				unserialize(&((*data)[index]), begin, end);
+				unserialize(&((*data)[index]), js);
 
 			}
 			else if (ch == json_key_symbol::array_end) {
@@ -505,15 +510,15 @@ public:
 	}
 
 	// end with '"' and skip "\""
-	static bool parse_str(string &val, const char** begin, const char* end) {
-		const char* b = *begin;
-		while (char ch = get_cur_and_next(begin, end)) {
+	static bool parse_str(string &val, json_stream &js) {
+		const char* b = js.begin;
+		while (char ch = get_cur_and_next(js)) {
 			if (ch == json_key_symbol::str) {
-				val.assign(b, (*begin) - 1);
+				val.assign(b, (js.begin) - 1);
 				return true;
 			}
 			else if (ch == '\\') {
-				ch = get_cur_and_next(begin, end);
+				ch = get_cur_and_next(js);
 			}
 		}
 		return false;
@@ -522,27 +527,27 @@ public:
 
 
 template<class T>
-class json_base{
+class json_base {
 
 public:
 	typedef T child_t;
-	typedef bool(T::*unserialize_fun_t)(const char**, const char*);
+	typedef bool(T::*unserialize_fun_t)(json_stream &js);
 	typedef void(T::*serialize_fun_t)(string &res);
 
 	// case 1:"xxx":xxx
 	// case 2:"xxx":"xxx"
 	// case 3:"xxx":{xxx}
 	// case 4:"xxx":[xxx]
-	bool parse_key_value(const char** begin, const char* end) {
-		parser::skip_space(begin, end);
-		if (parser::get_cur_and_next(begin,end) == parser::json_key_symbol::str) {
-			const char* b = *begin;
-			parser::skip_str(begin, end);
+	bool parse_key_value(json_stream &js) {
+		parser::skip_space(js);
+		if (parser::get_cur_and_next(js) == parser::json_key_symbol::str) {
+			const char* b = js.begin;
+			parser::skip_str(js);
 			no_copy_string key(b);
-			parser::skip_space(begin, end);
-			if (parser::get_cur_and_next(begin, end) == parser::json_key_symbol::key_value_separator) {
-				parser::skip_space(begin, end);
-				return unserialize(key, begin, end);
+			parser::skip_space(js);
+			if (parser::get_cur_and_next(js) == parser::json_key_symbol::key_value_separator) {
+				parser::skip_space(js);
+				return unserialize(key, js);
 			}
 			else
 				return false;
@@ -551,11 +556,11 @@ public:
 	}
 
 
-	bool parse_object(const char** begin,const char* end) {
+	bool parse_object(json_stream &js) {
 		// only the key_value should be parsed in {}
-		while (char ch = parser::get_cur_and_next(begin, end)) {
+		while (char ch = parser::get_cur_and_next(js)) {
 			if (ch == parser::json_key_symbol::object_begin || ch == parser::json_key_symbol::next_key_value) {
-				parse_key_value(begin, end);
+				parse_key_value(js);
 			}
 			else if (ch == parser::json_key_symbol::object_end) {
 				return true;
@@ -564,14 +569,14 @@ public:
 		return false;
 	}
 
-	bool unserialize(no_copy_string &key, const char** val, const char* end) {
+	bool unserialize(no_copy_string &key, json_stream &js) {
 		auto &fields = field_collector<child_t>::fields();
 		auto iter = fields.find(key);
 		if (iter != fields.end()) {
 			unserialize_fun_t &uns = (unserialize_fun_t&)iter->second.unserialize;
-			return (((T*)this)->*uns)(val, end);
+			return (((T*)this)->*uns)(js);
 		}
-		parser::check_skip(val, end);
+		parser::check_skip(js);
 		return false;
 	}
 public:
@@ -581,9 +586,10 @@ public:
 		const char* end = nullptr;
 		if (size > 0)
 			end = begin + size;
-		parse_object(&begin, end);
+		json_stream js{ begin,end };
+		parse_object(js);
 
-		return begin - json;
+		return js.begin - json;
 	}
 
 	void serialize(string &res) {
