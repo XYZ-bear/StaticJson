@@ -20,8 +20,8 @@ class name :public json_base<name>
 #define N(name)																														\
 name;																																\
 private:																															\
-	bool unserialize_##name( json_stream &js) {																	\
-		return parser::unserialize(&name,js);																				\
+	bool unserialize_##name( json_stream &js) {																						\
+		return parser::unserialize(&name,js);																						\
 	}																																\
 	void serialize_##name(string &res) {																							\
 		parser::serialize(&name,res);																								\
@@ -39,17 +39,17 @@ private:																															\
 	};																																\
 public:
 
-#define STRNG_TO_NUM(data_t,methodl,methodf)	\
-char* endptr;									\
-*data = (data_t)methodl(js.begin, &endptr, 10);	\
-if (*endptr == '.')								\
-	*data = (data_t)methodf(js.begin, &endptr);	\
-if (endptr == js.begin) {							\
-	check_skip(js);						\
-	return false;								\
-}												\
-(js.begin) = endptr;								\
-return true;									\
+#define STRNG_TO_NUM(data_t,methodl,methodf)				\
+char* endptr;												\
+*data = (data_t)methodl(js.begin, &endptr, 10);				\
+if (*endptr == '.' || *endptr == 'e' || *endptr == 'E')		\
+	*data = (data_t)methodf(js.begin, &endptr);				\
+if (endptr == js.begin) {									\
+	check_skip(js);											\
+	return false;											\
+}															\
+(js.begin) = endptr;										\
+return true;												\
 
 #define R(...) #__VA_ARGS__
 
@@ -223,6 +223,17 @@ public:
 	//escape the controll char like \t \r \f etc and whitespace
 	static bool inline is_ctr_or_space_char(char ch) {
 		return (ch == ' ' || (ch >= 0x00 && ch <= 0x1F) || ch == 0x7F);
+	}
+
+	static bool inline is_double(json_stream &js) {
+		json_stream t = js;
+		while (char ch = get_cur_and_next(t)) {
+			if (ch == '.' || ch == 'e' || ch == 'E')
+				return true;
+			else if ( ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}')
+				return false;
+		}
+		return true;
 	}
 
 	static void check_skip(json_stream &js) {
@@ -431,6 +442,14 @@ public:
 	inline static bool unserialize(uint64_t *data, json_stream &js) {
 		STRNG_TO_NUM(uint64_t, strtoull, strtod);
 	}
+	inline static bool unserialize_int(uint64_t *data, json_stream &js) {
+		char* endptr = nullptr;
+		*data = (uint64_t)strtoull(js.begin, &endptr, 10);
+		if (*endptr == '.' || *endptr == 'E' || *endptr == 'e')
+			return false;
+		(js.begin) = endptr;
+		return true;
+	}
 
 	inline static bool unserialize(double *data, json_stream &js) {
 		char *endptr;
@@ -511,14 +530,35 @@ public:
 
 	// end with '"' and skip "\""
 	static bool parse_str(string &val, json_stream &js) {
+		val.resize(0);
 		const char* b = js.begin;
 		while (char ch = get_cur_and_next(js)) {
 			if (ch == json_key_symbol::str) {
-				val.assign(b, (js.begin) - 1);
+				val.append(b, js.begin - 1);
 				return true;
 			}
 			else if (ch == '\\') {
 				ch = get_cur_and_next(js);
+				if (ch == 'n') {
+					val += '\n';
+					b = js.begin;
+				}
+				else if (ch == 'b') {
+					val += '\b';
+					b = js.begin;
+				}
+				else if (ch == 'f') {
+					val += '\f';
+					b = js.begin;
+				}
+				else if (ch == 't') {
+					val += '\t';
+					b = js.begin;
+				}
+				else if (ch == 'r') {
+					val += '\r';
+					b = js.begin;
+				}
 			}
 		}
 		return false;

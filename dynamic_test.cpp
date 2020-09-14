@@ -72,8 +72,11 @@ TEST_CASE("num limit test") {
 	dj["a"] = 23456789012E66;
 	CHECK((dj["a"] == 23456789012E66));
 	
-	dj.unserialize(R({ "a":23456789012E66 }));
+	dj.unserialize(R({ "a":23456789012e66 }));
 	CHECK((dj["a"] == 23456789012E66));
+
+	dj.unserialize(R({ "a":1.111 }));
+	CHECK((dj["a"] == 1.111));
 }
 
 TEST_CASE("araay test") {
@@ -176,11 +179,11 @@ TEST_CASE("parse test") {
 	//for (char ch : js)
 	//	cout << ch;
 
-
-	PERF(t1, 1) {
-		dynamic_json dj;
-		dj.unserialize(js.data());
-		//for (auto &jk : dj) {
+	dynamic_json dj2;
+	dj2.unserialize(js.data());
+	PERF(t1, 1000000) {
+		dj2["statuses"][90]["user"];
+		//for (auto &jk : dj2["statuses"][90]["user"]) {
 		//	cout << jk.key() << endl;
 		//}
 		//dj.dump();

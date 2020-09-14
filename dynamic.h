@@ -320,6 +320,14 @@ public:
 		return h->t == type_flag_t::num_t;
 	}
 
+	bool is_bool() {
+		return h->t == type_flag_t::boo_t;
+	}
+
+	bool is_null() {
+		return h->t == type_flag_t::nul_t;
+	}
+
 	size_t size() {
 		if (h->t == type_flag_t::arr_t || h->t == type_flag_t::obj_t)
 			return count_size();
@@ -594,21 +602,14 @@ protected:
 		h = (head_t*)(data.data() + head_off);
 	}
 
-	inline number_t& push_num() {
+	template<class N>
+	inline N& push_num() {
 		h->t = type_flag_t::num_t;
 		length_t head_off = (const char*)h - data.data();
 		data.resize(data.size() + sizeof(number_t));
 		h = (head_t*)(data.data() + head_off);
 		//h->set_int(0);
-		return *(number_t*)h->get_val();
-	}
-
-	inline void push_num(number_t num) {
-		h->t = type_flag_t::num_t;
-		length_t head_off = (const char*)h - data.data();
-		data.resize(data.size() + sizeof(number_t));
-		h = (head_t*)(data.data() + head_off);
-		h->set_num(num);
+		return *(N*)h->get_val();
 	}
 
 	template<class N>
@@ -783,20 +784,28 @@ private:
 					continue;
 				}
 				else if (ch == parser::json_key_symbol::array_begin) {
-					//set_flag(type_flag_t::arr_t);
 					continue;
 				}
 				else {
 					if (ch == 'f') {
 						js.begin += 5;
-						push_num(0);
+						push_num(false);
+						set_flag(type_flag_t::boo_t);
 					}
-					else if (ch == 't' || ch == 'n') {
+					else if(ch == 't'){
 						js.begin += 4;
-						push_num(0);
+						push_num(true);
+						set_flag(type_flag_t::boo_t);
+					}
+					else if (ch == 'n') {
+						js.begin += 4;
+						set_flag(type_flag_t::nul_t);
 					}
 					else {
-						parser::unserialize(&push_num(), js);
+						if (parser::is_double(js))
+							parser::unserialize(&push_num<double>(), js);
+						else
+							parser::unserialize_int(&push_num<uint64_t>(), js);
 					}
 				}
 			}
