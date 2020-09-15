@@ -429,33 +429,75 @@ public:
 
 		while (th) {
 			if (th->t != type_flag_t::del_t) {
+				if (th->kl) {
+					str += th->get_key();
+					str += ":";
+				}
+
 				if (th->t == type_flag_t::obj_t) {
-					str += "{";
-					stack.push({ true,(const char*)th - data.data() });
-					th = (head_t*)(data.data() + th->cl);
+					if (th->cl) {
+						str += "{";
+						stack.push({ true,(int)((const char*)th - data.data()) });
+						th = (head_t*)(data.data() + th->cl);
+					}
+					else {
+						th = (head_t*)(data.data() + th->n);
+						str += "{},";
+					}
 					continue;
 				}
 				else if (th->t == type_flag_t::arr_t) {
-					str += "[";
-					stack.push({ false,(const char*)th - data.data() });
-					th = (head_t*)(data.data() + th->cl);
+					if (th->cl) {
+						str += "[";
+						stack.push({ false,(int)((const char*)th - data.data()) });
+						th = (head_t*)(data.data() + th->cl);
+					}
+					else {
+						th = (head_t*)(data.data() + th->n);
+						str += "[],";
+					}
 					continue;
 				}
 
 				if (th->t == type_flag_t::num_t) {
-					//parser::serialize(th->get_num())
+					if (th->cl) {
+						int64_t i64 = th->get_num<int64_t>();
+						parser::serialize(&i64, str);
+					}
+					else {
+						int64_t d64 = th->get_num < int64_t > ();
+						parser::serialize(&d64, str);
+					}
+					str += ',';
 				}
 				else if (th->t == type_flag_t::str_t) {
-
+					str += th->get_string();
+					str += ',';
+				}
+				else if (th->t == type_flag_t::nul_t) {
+					str += "null";
+					str += ',';
+				}
+				else if (th->t == type_flag_t::boo_t) {
+					if (th->get_num<bool>())
+						str += "true";
+					else
+						str += "false";
+					str += ',';
 				}
 			}
-			if (!th->n) {
-				if (stack.top().is_obj)
-					cout << "},";
+			while (!th->n) {
+				str.pop_back();
+				if (stack.size()) {
+					if (stack.top().is_obj)
+						str += "},";
+					else
+						str += "],";
+					th = (head_t*)(data.data() + stack.top().off);
+					stack.pop();
+				}
 				else
-					cout << "],";
-				th = (head_t*)(data.data() + stack.top().off);
-				break;
+					return;
 			}
 			th = (head_t*)(data.data() + th->n);
 		}
@@ -738,9 +780,20 @@ protected:
 		length_t head_off = (const char*)h - data.data();
 		data.resize(data.size() + sizeof(number_t));
 		h = (head_t*)(data.data() + head_off);
-		//h->set_int(0);
+		set_num_cl<N>();
 		return *(N*)h->get_val();
 	}
+
+	template<class N>
+	inline void set_num_cl() {
+		h->cl = 1;
+	}
+
+	template<>
+	inline void set_num_cl<double>() {
+		h->cl = 0;
+	}
+
 
 	template<class N>
 	inline void push_num(N num) {
@@ -847,7 +900,11 @@ private:
 					if (ch == parser::json_key_symbol::str) {
 						//push head
 						const char* b = js.begin;
-						push_head_and_set(type_flag_t::pre_t, b, parser::skip_str(js));
+						int kl = parser::skip_str(js);
+						push_head_and_set(type_flag_t::pre_t, b, kl/*parser::skip_str(js)*/);
+
+						if(string(b,kl) == " s p a c e d ")
+							b = b;
 
 						//check key_value separator
 						parser::skip_space(js);
@@ -906,8 +963,9 @@ private:
 						set_flag(type_flag_t::nul_t);
 					}
 					else {
-						if (parser::is_double(js))
+						if (parser::is_double(js)) {
 							parser::unserialize(&push_num<double>(), js);
+						}
 						else
 							parser::unserialize_int(&push_num<uint64_t>(), js);
 					}
@@ -945,6 +1003,11 @@ public:
 	void dump() {
 		init();
 		return json_value::dump();
+	}
+
+	void dump(string &str) {
+		init();
+		return json_value::dump(str);
 	}
 	// if *json_value end with '\0',don't need the size arg
 	size_t unserialize(const char* json, size_t size = 0, char option = 0) {

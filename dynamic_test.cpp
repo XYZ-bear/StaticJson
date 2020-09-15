@@ -174,7 +174,7 @@ TEST_CASE("parse test") {
 	}
 
 	string js;
-	get_file(".//data//generated3.json", js);
+	get_file(".//data//pass01.json", js);
 	//cout << js.c_str();
 	//for (char ch : js)
 	//	cout << ch;
@@ -182,6 +182,9 @@ TEST_CASE("parse test") {
 	dynamic_json dj2;
 	dj2.unserialize(js);
 	dj2.dump();
+	string ds;
+	dj2.dump(ds);
+	cout << ds;
 	//json_value::vector_helper fv;
 	//dj2["statuses"].build_vector_helper(fv);
 	//auto &tdj2 = dj2["statuses"][90]["user"];

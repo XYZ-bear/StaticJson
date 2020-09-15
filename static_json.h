@@ -391,7 +391,7 @@ public:
 		else if (de < 0) {
 			res += "0.";
 			while (0 != de++) {
-				res += '0';
+				res += "0";
 			}
 			res += re;
 		}
