@@ -153,9 +153,22 @@ public:
 	}
 };
 
+#define ASSERT 0x1
+#define UNESCAPE 0x2
+#define UNESCAPE_UNICODE 0x4
+
 struct json_stream {
 	const char* begin;
 	const char* end;
+	char option;
+	void set_option(char op) {
+		option = op;
+	}
+	bool is_option(char op) {
+		if (option&op)
+			return true;
+		return false;
+	}
 };
 
 class parser {
@@ -528,6 +541,25 @@ public:
 		return false;
 	}
 
+	static unsigned parse_hex4(json_stream &js) {
+		unsigned codepoint = 0;
+		for (int i = 0; i < 4; i++) {
+			char c = parser::get_cur_and_next(js);
+			codepoint <<= 4;
+			codepoint += static_cast<unsigned>(c);
+			if (c >= '0' && c <= '9')
+				codepoint -= '0';
+			else if (c >= 'A' && c <= 'F')
+				codepoint -= 'A' - 10;
+			else if (c >= 'a' && c <= 'f')
+				codepoint -= 'a' - 10;
+			else {
+				return 0;
+			}
+		}
+		return codepoint;
+	}
+
 	// end with '"' and skip "\""
 	static bool parse_str(string &val, json_stream &js) {
 		val.resize(0);
@@ -558,6 +590,13 @@ public:
 				else if (ch == 'r') {
 					val += '\r';
 					b = js.begin;
+				}
+				else if (ch == 'u') {
+					//val += '\r';
+					//unsigned hex = parse_hex4(js);
+					//val.append((const char*)&hex, 4);
+					////int a = parse_hex4(js);
+					//b = js.begin;
 				}
 			}
 		}
@@ -621,7 +660,7 @@ public:
 	}
 public:
 	// if *json end with '\0',don't need the size arg
-	size_t unserialize(const char* json, size_t size = 0) {
+	size_t unserialize(const char* json, size_t size = 0 ) {
 		const char* begin = json;
 		const char* end = nullptr;
 		if (size > 0)

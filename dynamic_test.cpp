@@ -47,6 +47,10 @@ TEST_CASE("dynamic add test") {
 	
 }
 
+TEST_CASE("num v test") {
+	dynamic_json dj;
+	dj.unserialize(R({ "a":"\u4f60" }));
+}
 
 TEST_CASE("num limit test") {
 	dynamic_json dj;
@@ -99,10 +103,6 @@ TEST_CASE("parse test") {
 	dynamic_json dj;
 
 	dj.unserialize(R({"a":2334}));
-
-	dj.dump();
-
-
 	CHECK((dj["a"] == 2334));
 
 	dj.unserialize(R({ "a":"hello" }));
@@ -174,19 +174,23 @@ TEST_CASE("parse test") {
 	}
 
 	string js;
-	get_file(".//data//twitter.json", js);
+	get_file(".//data//generated3.json", js);
 	//cout << js.c_str();
 	//for (char ch : js)
 	//	cout << ch;
 
 	dynamic_json dj2;
-	dj2.unserialize(js.data());
-	PERF(t1, 1000000) {
-		dj2["statuses"][90]["user"];
-		//for (auto &jk : dj2["statuses"][90]["user"]) {
-		//	cout << jk.key() << endl;
-		//}
-		//dj.dump();
-	}
+	dj2.unserialize(js);
+	dj2.dump();
+	//json_value::vector_helper fv;
+	//dj2["statuses"].build_vector_helper(fv);
+	//auto &tdj2 = dj2["statuses"][90]["user"];
+	//json_value::map_helper mv;
+	//
+	//PERF(t1, 1000000) {
+	//	if(perf_test_t1.count == 1)
+	//		dj2["statuses"][90]["user"].build_map_helper(mv);
+	//	mv["notifications"];
+	//}
 }
 

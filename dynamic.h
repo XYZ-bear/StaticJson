@@ -2,6 +2,7 @@
 
 #include "static_json.h"
 #include <vector>
+#include <map>
 
 /*Linear chain storage structure
 Linear: Physical Structure,line memory space,like vector,
@@ -52,7 +53,53 @@ private:
 	int off;
 };
 
+struct info
+{
+	bool is_obj;
+	int off;
+};
+
+class mystack {
+public:
+	vector<info> vec;
+	mystack() {
+		vec.reserve(50);
+	}
+	void push(const info& in) {
+		vec.emplace_back(in);
+	}
+	info& top() {
+		return vec.back();
+	}
+	void pop() {
+		vec.pop_back();
+	}
+	size_t size() {
+		return vec.size();
+	}
+};
+
 struct json_value {
+public:
+	struct vector_helper {
+		json_value *root;
+		vector<int> vec;
+		json_value& operator [] (int index) {
+			if (root && index < vec.size())
+				return root->to_off(vec[index]);
+			return *root;
+		}
+	};
+
+	struct map_helper {
+		json_value *root;
+		unordered_map<no_copy_string, int> mapp;
+		json_value& operator [] (const char* key) {
+			if(root)
+				return root->to_off(mapp[key]);
+			return *root;
+		}
+	};
 protected:
 	typedef char flag_t;
 	typedef uint32_t next_t;
@@ -91,12 +138,7 @@ protected:
 			return sizeof(head_t);
 		}
 
-		static inline length_t no_key_head_size() {
-			return sizeof(head_t) - sizeof(key_t);
-		}
-
 		bool keycmp(const char* key) {
-			const char* kk = (const char*)this + head_size();
 			if (!strcmp((const char*)this + head_size(), key)) {
 				return true;
 			}
@@ -338,6 +380,87 @@ public:
 		return h->get_key();
 	}
 
+	void build_vector_helper(vector_helper& vh) {
+		if (h && h->t == type_flag_t::arr_t) {
+			vh.root = this;
+			const char* begin = data.data();
+			//// point to the child begin
+			head_t *th = (head_t*)(begin + h->cl);
+			vh.vec.push_back(h->cl);
+			while (th) {
+				// if this node was deleted -> jump
+				if (th->t != type_flag_t::del_t) {
+					vh.vec.push_back(th->n);
+				}
+				// return the end head
+				if (!th->n)
+					return;
+				// point to the brother head
+				th = (head_t*)(begin + th->n);
+
+			}
+		}
+	}
+
+	void build_map_helper(map_helper& vh) {
+		if (h && h->t == type_flag_t::obj_t) {
+			vh.root = this;
+			const char* begin = data.data();
+			//// point to the child begin
+			head_t *th = (head_t*)(begin + h->cl);
+			while (th) {
+				// if this node was deleted -> jump
+				if (th->t != type_flag_t::del_t) {
+					vh.mapp[th->get_key()] = (const char*)th - data.data();
+				}
+				// return the end head
+				if (!th->n)
+					return;
+				// point to the brother head
+				th = (head_t*)(begin + th->n);
+
+			}
+		}
+	}
+
+	void dump(string &str) {
+		mystack stack;
+		head_t *th = h;
+
+		while (th) {
+			if (th->t != type_flag_t::del_t) {
+				if (th->t == type_flag_t::obj_t) {
+					str += "{";
+					stack.push({ true,(const char*)th - data.data() });
+					th = (head_t*)(data.data() + th->cl);
+					continue;
+				}
+				else if (th->t == type_flag_t::arr_t) {
+					str += "[";
+					stack.push({ false,(const char*)th - data.data() });
+					th = (head_t*)(data.data() + th->cl);
+					continue;
+				}
+
+				if (th->t == type_flag_t::num_t) {
+					//parser::serialize(th->get_num())
+				}
+				else if (th->t == type_flag_t::str_t) {
+
+				}
+			}
+			if (!th->n) {
+				if (stack.top().is_obj)
+					cout << "},";
+				else
+					cout << "],";
+				th = (head_t*)(data.data() + stack.top().off);
+				break;
+			}
+			th = (head_t*)(data.data() + th->n);
+		}
+	}
+
 	void dump() {
 		head_t *th = (head_t*)(data.data() + h->cl);
 		const char* kkk = h->get_key();
@@ -419,11 +542,11 @@ private:
 		}
 		return 0;
 	}
-
 	head_t* get_index_head(length_t index) {
 		if (h && h->t == type_flag_t::arr_t) {
+			const char* begin = data.data();
 			// point to the child begin
-			head_t *th = (head_t*)(data.data() + h->cl);
+			head_t *th = (head_t*)(begin + h->cl);
 			uint32_t i = 0;
 			while (th) {
 				// if this node was deleted -> jump
@@ -439,7 +562,7 @@ private:
 				if (!th->n)
 					return th;
 				// point to the brother head
-				th = (head_t*)(data.data() + th->n);
+				th = (head_t*)(begin + th->n);
 
 			}
 			return th;
@@ -449,8 +572,9 @@ private:
 
 	head_t* get_key_head(const char* key) {
 		if (h && h->t == type_flag_t::obj_t) {
+			const char* begin = data.data();
 			// point to the child begin
-			head_t *th = (head_t*)(data.data() + h->cl);
+			head_t *th = (head_t*)(begin + h->cl);
 			while (th) {
 				// if this node was deleted -> jump
 				if (th->t != type_flag_t::del_t) {
@@ -464,7 +588,7 @@ private:
 				if (!th->n)
 					return th;
 				// point to the brother head
-				th = (head_t*)(data.data() + th->n);
+				th = (head_t*)(begin + th->n);
 			}
 			return th;
 		}
@@ -476,8 +600,14 @@ protected:
 		h = (head_t*)data.data();
 	}
 
-	void clear() {
+	void pre_allocate(size_t base_size) {
+		data.reserve(base_size + base_size / 3);
 		data.resize(0);
+	}
+
+	json_value& to_off(int off) {
+		h = (head_t*)(data.data() + off);
+		return *this;
 	}
 
 	void push_head_and_set(flag_t t, const char* key, length_t kl) {
@@ -638,32 +768,6 @@ public:
 	~dynamic_json() {
 	}
 private:
-	struct info
-	{
-		bool is_obj;
-		int off;
-	};
-
-	class mystack {
-	public:
-		vector<info> vec;
-		mystack() {
-			vec.reserve(50);
-		}
-		void push(const info& in) {
-			vec.emplace_back(in);
-		}
-		info& top() {
-			return vec.back();
-		}
-		void pop() {
-			vec.pop_back();
-		}
-		size_t size() {
-			return vec.size();
-		}
-	};
-
 	//Non recursive implementation, so there is no limit on the depth, it is up on your memory size
 	//nested grammer
 	//obj:{ -> "key" -> : -> value -> }
@@ -843,9 +947,8 @@ public:
 		return json_value::dump();
 	}
 	// if *json_value end with '\0',don't need the size arg
-	size_t unserialize(const char* json, size_t size = 0) {
-		//data.resize(0);
-		clear();
+	size_t unserialize(const char* json, size_t size = 0, char option = 0) {
+		pre_allocate(size);
 		init();
 		const char* begin = json;
 		const char* end = nullptr;
@@ -855,5 +958,9 @@ public:
 		if (parse(js))
 			return js.begin - json;
 		return 0;
+	}
+
+	size_t unserialize(string &js, char option = 0) {
+		return unserialize(js.data(), js.size(), option);
 	}
 };
