@@ -96,7 +96,6 @@ TEST_CASE("araay test") {
 	dj2["e"][2] = 789;
 	dj2["k"][0]["a"] = 789;
 	//cout << dj2["c"]["d"].is_number();
-	dj2.dump();
 }
 
 TEST_CASE("parse test") {
@@ -109,7 +108,6 @@ TEST_CASE("parse test") {
 	CHECK((dj["a"] == "hello"));
 
 	dj.unserialize(R({ "a": [123,456] }));
-	dj.dump();
 	CHECK((dj["a"][0] == 123));
 	CHECK((dj["a"][1] == 456));
 	CHECK(dj["a"].size() == 2);
@@ -174,17 +172,23 @@ TEST_CASE("parse test") {
 	}
 
 	string js;
-	get_file(".//data//pass01.json", js);
+	get_file(".//data//twitter.json", js);
 	//cout << js.c_str();
 	//for (char ch : js)
 	//	cout << ch;
+	//dynamic_json dj;
+	//dynamic_json dj3 = dj;
 
 	dynamic_json dj2;
 	dj2.unserialize(js);
-	dj2.dump();
+
 	string ds;
-	dj2.dump(ds);
-	cout << ds;
+	//dj2.dump();
+	PERF(t1, 10000) {
+		string ds;
+		dj2.dump(ds);
+	}
+	//cout << ds;
 	//json_value::vector_helper fv;
 	//dj2["statuses"].build_vector_helper(fv);
 	//auto &tdj2 = dj2["statuses"][90]["user"];

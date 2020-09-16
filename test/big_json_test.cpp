@@ -18,7 +18,7 @@ public:
 };
 
 TEST_CASE("twitter test") {
-	PERF(canada_test, 100000000) {
+	PERF(canada_test, 1) {
 		D d;
 		d.unserialize(R({ "d":1.7976931348623157 }));
 	}
@@ -26,7 +26,7 @@ TEST_CASE("twitter test") {
 
 	string res;
 	get_file(".//data//twitter.json",res);
-	PERF(twitter_test, 100) {
+	PERF(twitter_test, 1) {
 		Twitter twitter;
 		twitter.unserialize(res.data());
 	}
@@ -35,7 +35,7 @@ TEST_CASE("twitter test") {
 TEST_CASE("cananda test") {
 	string res;
 	get_file(".//data//canada.json", res);
-	PERF(canada_test, 1) {
+	PERF(canada_test, 0) {
 		Canada canada;
 		canada.unserialize(res.data());
 	}

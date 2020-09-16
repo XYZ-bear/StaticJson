@@ -198,6 +198,10 @@ TEST_CASE("char test") {
 
 	t.unserialize(R({ "str":"\abc" }));
 	CHECK(t.str == "\\abc");
+
+	//t.unserialize(R({ "str":"\u4f60" }));
+	//CHECK(*(unsigned*)t.str.data() == 0x4f60);
+	//cout << t.str;
 }
 
 Json(Num) {

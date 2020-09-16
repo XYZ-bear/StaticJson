@@ -20,24 +20,24 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="doctest.h" />
-    <ClInclude Include="dynamic.h" />
+    <ClInclude Include="include\dynamic.h" />
+    <ClInclude Include="include\static_json.h" />
     <ClInclude Include="perf.h" />
-    <ClInclude Include="static_json.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="base_test.cpp" />
     <ClCompile Include="dtoa.c" />
-    <ClCompile Include="dynamic_test.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="big_json_test.cpp" />
-    <ClCompile Include="parse_test.cpp" />
+    <ClCompile Include="test\base_test.cpp" />
+    <ClCompile Include="test\big_json_test.cpp" />
+    <ClCompile Include="test\dynamic_test.cpp" />
+    <ClCompile Include="test\parse_test.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
     <ProjectGuid>{FC87AE87-0783-4DB9-B8D4-8FD84012F8EA}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>StaticJson</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.17134.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -119,6 +119,8 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;IEEE_8087;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalUsingDirectories>E:\Project\static_json\include;%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
+      <AdditionalIncludeDirectories>E:\Project\static_json;E:\Project\static_json\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

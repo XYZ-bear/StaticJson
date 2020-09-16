@@ -15,16 +15,16 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="doctest.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="static_json.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="perf.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="dynamic.h">
+    <ClInclude Include="include\dynamic.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\static_json.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="doctest.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
@@ -32,19 +32,19 @@
     <ClCompile Include="main.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="big_json_test.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="parse_test.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="base_test.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="dtoa.c">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="dynamic_test.cpp">
+    <ClCompile Include="test\base_test.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="test\big_json_test.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="test\dynamic_test.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="test\parse_test.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

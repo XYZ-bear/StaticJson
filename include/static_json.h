@@ -384,15 +384,23 @@ public:
 		if (si)
 			res += '-';
 		if (de > 0) {
-			res.append(re, de);
-			res += '.';
-			res += (re + de);
+			size_t rel = strlen(re);
+			if (de < rel) {
+				res.append(re, de);
+				res += '.';
+				res += (re + de);
+			}
+			else {
+				res.append(re, rel);
+				res.append(de - rel, '0');
+			}
 		}
 		else if (de < 0) {
 			res += "0.";
-			while (0 != de++) {
-				res += "0";
-			}
+			res.append(-1 * de, '0');
+			//while (0 != de++) {
+			//	res += "0";
+			//}
 			res += re;
 		}
 #else

@@ -31,8 +31,11 @@ value ->|-------------|
 			.......
 */
 
+
+//! json_value iterator
+//! \tparam T the type of json_value
 template <class T>
-class iter :public iterator<input_iterator_tag, T>
+class iter
 {
 public:
 	iter(T * pp,int o) :p(pp),off(o) {}
@@ -44,6 +47,9 @@ public:
 		return true;
 	}
 	T & operator *() { return *p; }
+
+	/*! \brief 
+	*/
 	T & operator ++() { 
 		off = ++(*p);
 		return *p;
@@ -53,14 +59,14 @@ private:
 	int off;
 };
 
-struct info
-{
-	bool is_obj;
-	int off;
-};
 
 class mystack {
 public:
+	struct info
+	{
+		bool is_obj;
+		int off;
+	};
 	vector<info> vec;
 	mystack() {
 		vec.reserve(50);
@@ -424,14 +430,22 @@ public:
 	}
 
 	void dump(string &str) {
+		str.reserve(data.size());
 		mystack stack;
 		head_t *th = h;
 
 		while (th) {
 			if (th->t != type_flag_t::del_t) {
-				if (th->kl) {
-					str += th->get_key();
-					str += ":";
+				if (stack.size() && stack.top().is_obj) {
+					if (th->kl) {
+						str += "\"";
+						str += th->get_key();
+						str += "\":";
+					}
+					else {
+						str += "\"\":";
+					}
+					
 				}
 
 				if (th->t == type_flag_t::obj_t) {
@@ -439,24 +453,26 @@ public:
 						str += "{";
 						stack.push({ true,(int)((const char*)th - data.data()) });
 						th = (head_t*)(data.data() + th->cl);
+						continue;
 					}
 					else {
 						th = (head_t*)(data.data() + th->n);
 						str += "{},";
 					}
-					continue;
+					//continue;
 				}
 				else if (th->t == type_flag_t::arr_t) {
 					if (th->cl) {
 						str += "[";
 						stack.push({ false,(int)((const char*)th - data.data()) });
 						th = (head_t*)(data.data() + th->cl);
+						continue;
 					}
 					else {
 						th = (head_t*)(data.data() + th->n);
 						str += "[],";
 					}
-					continue;
+					
 				}
 
 				if (th->t == type_flag_t::num_t) {
@@ -465,14 +481,16 @@ public:
 						parser::serialize(&i64, str);
 					}
 					else {
-						int64_t d64 = th->get_num < int64_t > ();
+						double d64 = th->get_num < double > ();
 						parser::serialize(&d64, str);
 					}
 					str += ',';
 				}
 				else if (th->t == type_flag_t::str_t) {
+					str += "\"";
 					str += th->get_string();
-					str += ',';
+					//str += "str";
+					str += '\",';
 				}
 				else if (th->t == type_flag_t::nul_t) {
 					str += "null";
@@ -503,65 +521,16 @@ public:
 		}
 	}
 
-	void dump() {
-		head_t *th = (head_t*)(data.data() + h->cl);
-		const char* kkk = h->get_key();
-		bool is_arr = false;
-		bool stack = false;
-		if (h->t == type_flag_t::obj_t) {
-			//	cout << "\"" << th->get_key() << "\":";
-			cout << "{";
-			stack = true;
-		}
-		else if (h->t == type_flag_t::arr_t) {
-			is_arr = true;
-			cout << "[";
-		}
-		while (th) {
-			// if this node was deleted -> jump
-			if (th->t != type_flag_t::del_t) {
-				// if find the key -> reset the head
-				if (th->t == type_flag_t::obj_t || th->t == type_flag_t::arr_t) {
-					if (th->kl)
-						cout << "\"" << th->get_key() << "\":";
-					if (th->cl) {
-						h = th;
-						dump();
-					}
-					else {
-						if (th->t == obj_t) {
-							cout << "{},";
-						}
-						else {
-							cout << "[],";
-						}
-					}
-				}
-				if (stack && th->kl)
-					cout << "\"" << th->get_key() << "\":";
-				if (th->t == type_flag_t::num_t) {
-					cout << th->get_num<int>() << ",";
-				}
-				else if (th->t == type_flag_t::str_t) {
-					cout << "\"" << th->get_string() << "\",";
-				}
-			}
-			// return the end head
-			if (!th->n) {
-				cout << "\b";
-				if (stack)
-					cout << "},";
-				if (is_arr)
-					cout << "],";
-				//th = (head_t*)(data.data() + th->cl);
-				break;
-			}
-			// point to the brother head
-			th = (head_t*)(data.data() + th->n);
-		}
+	void swap(json_value& jv) {
+		data.swap(jv.data);
+		init();
 	}
+
 private:
-	json_value(const json_value &v) {}
+	// delete the copy structor and operator, avoid freshman to do some stupid things
+	// if you really really want to copy a entity, please use copy_from
+	json_value(const json_value &) = delete;
+	json_value& operator = (const json_value&) = delete;
 
 	length_t count_size() {
 		if (h && h->t == type_flag_t::arr_t && h->cl) {
@@ -804,11 +773,15 @@ protected:
 		h->set_num(num);
 	}
 
+	void root_copy(json_value& jv) {
+		data = jv.data;
+		h = jv.h;
+	}
+
 private:
 	string data;
 	head_t* h;
 };
-
 
 
 #define ERROR_RETURT(pos) cout << "[error]:" << pos << endl;return false;
@@ -989,6 +962,9 @@ private:
 		return false;
 	}
 public:
+	void copy_from(json_value& jv) {
+		root_copy(jv);
+	}
 	//json_value json_data;
 	json_value & operator [] (const char* key) {
 		init();
@@ -998,11 +974,6 @@ public:
 	json_value& operator [] (int index) {
 		init();
 		return json_value::operator[](index);
-	}
-
-	void dump() {
-		init();
-		return json_value::dump();
 	}
 
 	void dump(string &str) {
