@@ -4,10 +4,10 @@
 #include <string>
 #include <string.h>
 #include <fstream> 
-#include <iostream>
 #include <vector>
 #include <unordered_map>
 #include <map>
+#include <assert.h>
 
 extern "C" double strtod(const char *s00, char **se);
 extern "C" char *dtoa(double d, int mode, int ndigits, int *decpt, int *sign, char **rve);
@@ -153,9 +153,10 @@ public:
 	}
 };
 
-#define ASSERT 0x1
-#define UNESCAPE 0x2
-#define UNESCAPE_UNICODE 0x4
+#define ASSERT (char)0x1
+#define UNESCAPE (char)0x2
+#define UNESCAPE_UNICODE (char)0x4
+#define FAIL_RETURN (char)0x8
 
 struct json_stream {
 	const char* begin;
@@ -506,9 +507,9 @@ public:
 	inline static bool unserialize(V *data, json_stream &js) {
 		if (*js.begin == json_key_symbol::object_begin) {
 			if (js.end)
-				js.begin += data->unserialize(js.begin, js.end - js.begin);
+				js.begin += data->unserialize(js.begin, js.end - js.begin, js.option);
 			else
-				js.begin += data->unserialize(js.begin);
+				js.begin += data->unserialize(js.begin, js.option);
 		}
 		else {
 			check_skip(js);
@@ -549,7 +550,7 @@ public:
 		return false;
 	}
 
-	static unsigned parse_hex4(json_stream &js) {
+	static bool parse_hex4(string &str,json_stream &js) {
 		unsigned codepoint = 0;
 		for (int i = 0; i < 4; i++) {
 			char c = parser::get_cur_and_next(js);
@@ -565,7 +566,26 @@ public:
 				return 0;
 			}
 		}
-		return codepoint;
+
+		if (codepoint <= 0x7F)
+			str += static_cast<char>(codepoint & 0xFF);
+		else if (codepoint <= 0x7FF) {
+			str += (static_cast<char>(0xC0 | ((codepoint >> 6) & 0xFF)));
+			str += (static_cast<char>(0x80 | ((codepoint & 0x3F))));
+		}
+		else if (codepoint <= 0xFFFF) {
+			str += (static_cast<char>(0xE0 | ((codepoint >> 12) & 0xFF)));
+			str += (static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+			str += (static_cast<char>(0x80 | (codepoint & 0x3F)));
+		}
+		else {
+			//RAPIDJSON_ASSERT(codepoint <= 0x10FFFF);
+			str += (static_cast<char>(0xF0 | ((codepoint >> 18) & 0xFF)));
+			str += (static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+			str += (static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+			str += (static_cast<char>(0x80 | (codepoint & 0x3F)));
+		}
+		return true;
 	}
 
 	// end with '"' and skip "\""
@@ -579,32 +599,31 @@ public:
 			}
 			else if (ch == '\\') {
 				ch = get_cur_and_next(js);
-				if (ch == 'n') {
-					val += '\n';
-					b = js.begin;
-				}
-				else if (ch == 'b') {
-					val += '\b';
-					b = js.begin;
-				}
-				else if (ch == 'f') {
-					val += '\f';
-					b = js.begin;
-				}
-				else if (ch == 't') {
-					val += '\t';
-					b = js.begin;
-				}
-				else if (ch == 'r') {
-					val += '\r';
-					b = js.begin;
-				}
-				else if (ch == 'u') {
-					//val += '\r';
-					//unsigned hex = parse_hex4(js);
-					//val.append((const char*)&hex, 4);
-					////int a = parse_hex4(js);
-					//b = js.begin;
+				if (!js.is_option(UNESCAPE)) {
+					if (ch == 'n') {
+						val += '\n';
+						b = js.begin;
+					}
+					else if (ch == 'b') {
+						val += '\b';
+						b = js.begin;
+					}
+					else if (ch == 'f') {
+						val += '\f';
+						b = js.begin;
+					}
+					else if (ch == 't') {
+						val += '\t';
+						b = js.begin;
+					}
+					else if (ch == 'r') {
+						val += '\r';
+						b = js.begin;
+					}
+					else if (ch == 'u' && !js.is_option(UNESCAPE_UNICODE)) {
+						parse_hex4(val, js);
+						b = js.begin;
+					}
 				}
 			}
 		}
@@ -668,12 +687,17 @@ public:
 	}
 public:
 	// if *json end with '\0',don't need the size arg
-	size_t unserialize(const char* json, size_t size = 0 ) {
+	size_t unserialize(const char* json, size_t size, char option = 0) {
 		const char* begin = json;
-		const char* end = nullptr;
-		if (size > 0)
-			end = begin + size;
-		json_stream js{ begin,end };
+		json_stream js{ begin,begin + size,option };
+		parse_object(js);
+
+		return js.begin - json;
+	}
+
+	size_t unserialize(const char* json, char option = 0) {
+		const char* begin = json;
+		json_stream js{ begin,nullptr,option };
 		parse_object(js);
 
 		return js.begin - json;

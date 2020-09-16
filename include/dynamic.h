@@ -784,8 +784,7 @@ private:
 };
 
 
-#define ERROR_RETURT(pos) cout << "[error]:" << pos << endl;return false;
-
+#define ERROR_RETURT(opt) cout << "[error]:" << opt.begin;assert(!js.is_option(ASSERT));cout<<endl;return false;
 
 class dynamic_json :public json_value {
 public:
@@ -843,7 +842,7 @@ private:
 					stack.pop();
 				}
 				else {
-					ERROR_RETURT(js.begin);
+					ERROR_RETURT(js);
 				}
 				parser::skip_space(js);
 				continue;
@@ -854,13 +853,13 @@ private:
 					stack.pop();
 				}
 				else {
-					ERROR_RETURT(js.begin);
+					ERROR_RETURT(js);
 				}
 				parser::skip_space(js);
 				continue;
 			}
 			if (stack.size() == 0) {
-				ERROR_RETURT(js.begin);
+				ERROR_RETURT(js);
 			}
 
 			//step 2: parse key
@@ -882,7 +881,7 @@ private:
 						//check key_value separator
 						parser::skip_space(js);
 						if (parser::get_cur_and_next(js) != parser::json_key_symbol::key_value_separator) {
-							ERROR_RETURT(js.begin);
+							ERROR_RETURT(js);
 						}
 					}
 					//if no value pop stack
@@ -893,12 +892,12 @@ private:
 					}
 					else {
 						//error format
-						ERROR_RETURT(js.begin);
+						ERROR_RETURT(js);
 					}
 				}
 				else {
 					//error format
-					ERROR_RETURT(js.begin);
+					ERROR_RETURT(js);
 				}
 			}
 			else {
@@ -953,7 +952,7 @@ private:
 				continue;
 			}
 
-			ERROR_RETURT(js.begin);
+			ERROR_RETURT(js);
 			//-----------------------------------------------------------
 		}
 
@@ -988,7 +987,7 @@ public:
 		const char* end = nullptr;
 		if (size > 0)
 			end = begin + size;
-		json_stream js{ begin,end };
+		json_stream js{ begin,end,option };
 		if (parse(js))
 			return js.begin - json;
 		return 0;

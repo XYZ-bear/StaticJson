@@ -1,6 +1,7 @@
 #pragma once
 #include "doctest.h"
 #include "static_json.h"
+#include <tchar.h>
 
 Json(Test6)
 {
@@ -199,9 +200,14 @@ TEST_CASE("char test") {
 	t.unserialize(R({ "str":"\abc" }));
 	CHECK(t.str == "\\abc");
 
-	//t.unserialize(R({ "str":"\u4f60" }));
-	//CHECK(*(unsigned*)t.str.data() == 0x4f60);
-	//cout << t.str;
+	t.unserialize(R({ "str":"\u4f60" }),UNESCAPE_UNICODE);
+	CHECK(t.str == "\\u4f60");
+	
+	t.unserialize(R({ "str":"\n" }), UNESCAPE);
+	CHECK(t.str == "\\n");
+
+	t.unserialize(R({ "str":"\n" }));
+	CHECK(t.str == "\n");
 }
 
 Json(Num) {

@@ -47,9 +47,10 @@ TEST_CASE("dynamic add test") {
 	
 }
 
-TEST_CASE("num v test") {
+TEST_CASE("unicode v test") {
 	dynamic_json dj;
 	dj.unserialize(R({ "a":"\u4f60" }));
+	cout << (const char*)dj["a"];
 }
 
 TEST_CASE("num limit test") {
@@ -151,7 +152,7 @@ TEST_CASE("parse test") {
 		if (js.size() > 0) {
 			cout << path << ":";
 			dynamic_json dj;
-			cout << dj.unserialize(js.data()) << endl;
+			cout << dj.unserialize(js) << endl;
 		}
 	}
 
@@ -184,7 +185,7 @@ TEST_CASE("parse test") {
 
 	string ds;
 	//dj2.dump();
-	PERF(t1, 10000) {
+	PERF(t1, 1) {
 		string ds;
 		dj2.dump(ds);
 	}
