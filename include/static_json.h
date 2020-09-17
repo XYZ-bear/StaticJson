@@ -156,7 +156,6 @@ public:
 #define ASSERT (char)0x1
 #define UNESCAPE (char)0x2
 #define UNESCAPE_UNICODE (char)0x4
-#define FAIL_RETURN (char)0x8
 
 struct json_stream {
 	const char* begin;
@@ -495,6 +494,7 @@ public:
 	}
 	inline static bool unserialize(string *data, json_stream &js) {
 		if (get_cur_and_next(js) == json_key_symbol::str) {
+			data->resize(0);
 			parse_str(*data, js);
 		}
 		else {
@@ -590,7 +590,6 @@ public:
 
 	// end with '"' and skip "\""
 	static bool parse_str(string &val, json_stream &js) {
-		val.resize(0);
 		const char* b = js.begin;
 		while (char ch = get_cur_and_next(js)) {
 			if (ch == json_key_symbol::str) {

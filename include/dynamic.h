@@ -32,35 +32,37 @@ value ->|-------------|
 */
 
 
-//! json_value iterator
+//! json_value json_iteratorator
 //! \tparam T the type of json_value
 template <class T>
-class iter
+class json_iterator
 {
 public:
-	iter(T * pp,int o) :p(pp),off(o) {}
-	iter(const iter<T> &i) :p(i.p) {}
-	iter<T> & operator = (const iter<T>& i) { p = i.p; return *this; }
-	bool operator != (const iter<T>& i) { 
-		if (off == i.off)
+	json_iterator(T * pp,bool o) :p(pp),end(o) {}
+
+	json_iterator(const json_iterator<T> &i) :p(i.p) {}
+
+	json_iterator<T> & operator = (const json_iterator<T>& i) { p = i.p; return *this; }
+
+	bool operator != (const json_iterator<T>& i) { 
+		if (end == i.end) 
 			return false;
 		return true;
 	}
+
 	T & operator *() { return *p; }
 
-	/*! \brief 
-	*/
 	T & operator ++() { 
-		off = ++(*p);
+		end = ++(*p);
 		return *p;
 	}
 private:
 	T * p;
-	int off;
+	bool end;
 };
 
 
-class mystack {
+class json_stack {
 public:
 	struct info
 	{
@@ -68,8 +70,8 @@ public:
 		int off;
 	};
 	vector<info> vec;
-	mystack() {
-		vec.reserve(50);
+	json_stack() {
+		vec.reserve(20);
 	}
 	void push(const info& in) {
 		vec.emplace_back(in);
@@ -87,31 +89,23 @@ public:
 
 struct json_value {
 public:
-	struct vector_helper {
-		json_value *root;
-		vector<int> vec;
-		json_value& operator [] (int index) {
-			if (root && index < vec.size())
-				return root->to_off(vec[index]);
-			return *root;
-		}
-	};
+	//! inorder to support old compiler, separeate with type_flag_t
+	typedef char flag_t; 
 
-	struct map_helper {
-		json_value *root;
-		unordered_map<no_copy_string, int> mapp;
-		json_value& operator [] (const char* key) {
-			if(root)
-				return root->to_off(mapp[key]);
-			return *root;
-		}
-	};
-protected:
-	typedef char flag_t;
+	//! point to the next value
 	typedef uint32_t next_t;
+
+	//! by default, the json value memery size just support 4G
 	typedef uint32_t length_t;
+
+	//! just support 8byte length number
 	typedef uint64_t number_t;
+
+	//! when the key length <= 255, then store the key length
+	//  if key length > 255, then store the length as 256, use strlen to get the real length
 	typedef uint8_t key_t;
+
+	//! all the json token type
 	enum type_flag_t
 	{
 		emp_t = 0,
@@ -122,8 +116,33 @@ protected:
 		str_t = 5,
 		arr_t = 6,
 		obj_t = 7,
-		del_t = 8
+		del_t = 8,
+		num_double_t = 9,
+		num_int_t = 10
 	};
+
+	//! help you to push the childs into a vector
+	struct vector_helper {
+		json_value *root;
+		vector<int> vec;
+		json_value& operator [] (int index) {
+			if (root && index < vec.size())
+				return root->to_off(vec[index]);
+			return *root;
+		}
+	};
+
+	//! help you to push the childs into a map with key
+	struct map_helper {
+		json_value *root;
+		unordered_map<no_copy_string, length_t> mapp;
+		json_value& operator [] (const char* key) {
+			if (root)
+				return root->to_off(mapp[key]);
+			return *root;
+		}
+	};
+protected:
 
 #pragma pack(push,1)
 	struct head_t
@@ -156,7 +175,9 @@ protected:
 		}
 
 		char* get_val() {
-			return kl == 0 ? (char*)this + head_size() + kl : (char*)this + head_size() + kl + 1;
+			if(kl < 256)
+				return kl == 0 ? (char*)this + head_size() + kl : (char*)this + head_size() + kl + 1;
+			return (char*)this + head_size() + strlen(get_key()) + 1;
 		}
 
 		template<class N>
@@ -195,90 +216,101 @@ public:
 	json_value() {
 	}
 
-	iter<json_value> begin() {
+	//! the begin json_iteratorator
+	json_iterator<json_value> begin() {
 		if (h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) {
 			h = (head_t*)(data.data() + h->cl);
 		}
-		return iter<json_value>(this,h->n);
+		return json_iterator<json_value>(this, false);
 	}
 
-	iter<json_value> end() {
-		return iter<json_value>(this, 0);
+	//! the end json_iteratorator
+	json_iterator<json_value> end() {
+		return json_iterator<json_value>(this, true);
 	}
 
+	//! get object value
 	json_value& operator [] (const char* key) {
 		if (key && h) {
 			// set this head as obj_t
 			if (h->t == type_flag_t::pre_t) {
 				h->t = type_flag_t::obj_t;
-				h->cl = data.size();
-				h = &push_head(type_flag_t::pre_t, key, strlen(key));
+				h->cl = (length_t)data.size();
+				push_head(type_flag_t::pre_t, key, (length_t)strlen(key));
 			}
 			else {
 				// dont find the head -> add this key
 				head_t *th = get_key_head(key);
 				if (th == nullptr) {
-					th = &push_head(type_flag_t::obj_t);
-					th->cl = data.size();
-					h = &push_head(type_flag_t::pre_t, key, strlen(key));
+					push_head(type_flag_t::obj_t);
+					h->cl = (length_t)data.size();
+					push_head(type_flag_t::pre_t, key, (length_t)strlen(key));
 				}
 				else if (h != th) {
-					th->n = data.size();
-					h = &push_head(type_flag_t::pre_t, key, strlen(key));
+					th->n = (next_t)data.size();
+					push_head(type_flag_t::pre_t, key, (length_t)strlen(key));
 				}
 			}
 		}
 		return *this;
 	}
 
+	//! get arrray value
 	json_value& operator [] (int index) {
 		if (index >= 0) {
 			// set this head as obj_t
 			if (h->t == type_flag_t::pre_t) {
 				h->t = type_flag_t::arr_t;
-				h->cl = data.size();
-				h = &push_head(type_flag_t::pre_t);
+				h->cl = (length_t)data.size();
+				push_head(type_flag_t::pre_t);
 			}
 			else {
 				// dont find the head -> add this key
 				head_t *th = get_index_head(index);
 				if (th == nullptr) {
-					th = &push_head(type_flag_t::arr_t);
-					th->cl = data.size();
-					h = &push_head(type_flag_t::pre_t);
+					push_head(type_flag_t::arr_t);
+					h->cl = (length_t)data.size();
+					push_head(type_flag_t::pre_t);
 				}
 				else if (h != th) {
-					th->n = data.size();
-					h = &push_head(type_flag_t::pre_t);
+					th->n = (next_t)data.size();
+					push_head(type_flag_t::pre_t);
 				}
 			}
 		}
 		return *this;
 	}
 
-	int operator ++() {
+	//! get the next value head
+	/*! 
+		\return	If this is the last value return true else return false
+	*/
+	bool operator ++() {
 		if (h->n) {
 			h = (head_t*)(data.data() + h->n);
-			return 1;
+			return false;
 		}
 		else
-			return 0;
+			return true;
 	}
 
+	//! assign a number
 	template<class N>
 	void operator = (N num) {
+		static_assert(is_arithmetic<N>::value != 0, "Must be arithmetic type");
 		if (h) {
 			if (h->t == type_flag_t::num_t)
 				h->set_num(num);
 			else if (h->t == type_flag_t::pre_t) {
-				push_num(num);
+				push_num<N>() = num;
 			}
 		}
 	}
 
+	//! assign a string
 	void operator = (const char* str) {
 		if (h && str) {
-			length_t len = strlen(str);
+			length_t len = (length_t)strlen(str);
 			if (h->t == type_flag_t::str_t) {
 				if (len <= h->cl) {
 					h->cl = len;
@@ -286,8 +318,8 @@ public:
 				}
 				else {
 					h->t = type_flag_t::del_t;
-					h->n = data.size();
-					h = &push_head_from(type_flag_t::str_t, h);
+					h->n = (next_t)data.size();
+					push_head_from(type_flag_t::str_t, h);
 					h->cl = len;
 					push_str(str, len);
 				}
@@ -299,30 +331,42 @@ public:
 			}
 			else {
 				h->t = type_flag_t::del_t;
-				h->n = data.size();
-				h = &push_head_from(type_flag_t::str_t, h);
+				h->n = (next_t)data.size();
+				push_head_from(type_flag_t::str_t, h);
 				h->cl = len;
 				push_str(str, len);
 			}
 		}
 	}
 
-	template<class T>
-	operator T()
+	//! get number
+	template<class Num>
+	operator Num()
 	{
-		return h->get_num<T>();
+		static_assert(is_arithmetic<Num>::value != 0, "Must be arithmetic type");
+		return h->get_num<Num>();
 	}
 
+	//! you'd better do not use this stupied way to get string value
 	operator string() {
 		string res;
 		h->get_string(res);
 		return res;
 	}
 
+	//! an elegant way to get the real type value 
+	/*! \brief the traditional way: const char* v = value.get_string() or const char* v = value.get<string>(), urgly
+			   this way: const char* v = value;
+		\return	implicit convert the json_value to const char*
+	*/
 	operator const char*() {
 		return h->get_string();
 	}
 
+	//! compare with string
+	/*! 
+		\tparam N it could be uint8_t,int8_t,uint16_t,int16_t,uint32_t,int32_t,float,double all the number length < 8byte
+	*/
 	bool operator == (const char* str) {
 		if (h->t == type_flag_t::str_t)
 			return h->equal(str);
@@ -330,20 +374,31 @@ public:
 			return false;
 	}
 
+	//! compare with number
+	/*! 
+		\tparam N it could be uint8_t,int8_t,uint16_t,int16_t,uint32_t,int32_t,float,double all the number length < 8byte 
+	*/
 	template<class N>
 	bool operator == (N num) {
+		static_assert(is_arithmetic<N>::value != 0, "Must be arithmetic type");
 		if (h->t == type_flag_t::num_t)
 			return h->get_num<N>() == num;
 		else
 			return false;
 	}
 
+	//! erase a value
+	/*! \brief	For efficiency, just set the value flag as del_t, so there the memory move will not happen
+				when insert a new value the memery may be use again. 
+	*/
 	void erase() {
 		if (h) {
 			h->t = type_flag_t::del_t;
 		}
 	}
 
+	//! find a key
+	//! \return exist -> true or -> false
 	bool find(const char* key) {
 		if (head_t *th = get_key_head(key)) {
 			if (th == h)
@@ -376,16 +431,41 @@ public:
 		return h->t == type_flag_t::nul_t;
 	}
 
+	bool is_number_int() {
+		return h->t == type_flag_t::num_int_t;
+	}
+
+	bool is_number_double() {
+		return h->t == type_flag_t::num_double_t;
+	}
+
+	//! get the child size or value size
+	/*! \return [],{} -> child size,
+				number -> sizeof(number_t) = 8byte
+				string -> length(string)
+	*/
 	size_t size() {
 		if (h->t == type_flag_t::arr_t || h->t == type_flag_t::obj_t)
 			return count_size();
+		else if (h->t == type_flag_t::num_t) {
+			return sizeof(number_t);
+		}
 		return h->cl;
 	}
 
+	//! get the key of the value
+	/*! \return in [] -> return null
+				in {} -> return the key
+	*/
 	const char* key() {
 		return h->get_key();
 	}
 
+	//! build all the same level data to a map
+	/*! \brief If you need to find a value by index in high frequency, this will help you.
+			   If you want to know why this api is necessary, you should know about the json_value Memeary model
+		\param vh a vector_helper reference
+	*/
 	void build_vector_helper(vector_helper& vh) {
 		if (h && h->t == type_flag_t::arr_t) {
 			vh.root = this;
@@ -408,16 +488,20 @@ public:
 		}
 	}
 
-	void build_map_helper(map_helper& vh) {
+	//! build all the same level data to a map
+	/*! \brief if you need to find a value by key in high frequency, this will help you 
+		\param mh a map_helper reference
+	*/
+	void build_map_helper(map_helper& mh) {
 		if (h && h->t == type_flag_t::obj_t) {
-			vh.root = this;
+			mh.root = this;
 			const char* begin = data.data();
 			//// point to the child begin
 			head_t *th = (head_t*)(begin + h->cl);
 			while (th) {
 				// if this node was deleted -> jump
 				if (th->t != type_flag_t::del_t) {
-					vh.mapp[th->get_key()] = (const char*)th - data.data();
+					mh.mapp[th->get_key()] = (length_t)((const char*)th - data.data());
 				}
 				// return the end head
 				if (!th->n)
@@ -431,7 +515,7 @@ public:
 
 	void dump(string &str) {
 		str.reserve(data.size());
-		mystack stack;
+		json_stack stack;
 		head_t *th = h;
 
 		while (th) {
@@ -489,8 +573,7 @@ public:
 				else if (th->t == type_flag_t::str_t) {
 					str += "\"";
 					str += th->get_string();
-					//str += "str";
-					str += '\",';
+					str += "\",";
 				}
 				else if (th->t == type_flag_t::nul_t) {
 					str += "null";
@@ -533,7 +616,7 @@ private:
 	json_value& operator = (const json_value&) = delete;
 
 	length_t count_size() {
-		if (h && h->t == type_flag_t::arr_t && h->cl) {
+		if (h && h->cl) {
 			// point to the child begin
 			head_t *th = (head_t*)(data.data() + h->cl);
 			length_t i = 0;
@@ -621,9 +704,45 @@ protected:
 		return *this;
 	}
 
-	void push_head_and_set(flag_t t, const char* key, length_t kl) {
+	void set_next() {
+		h->n = (next_t)data.size();
+	}
+
+	void update_head(int off) {
+		h = (head_t*)(data.data() + off);
+	}
+
+	void update_cl() {
+		h->cl = (length_t)data.size();
+	}
+
+	void update_cl(length_t length) {
+		h->cl = length;
+	}
+
+	void update_cl0() {
+		h->cl = 0;
+	}
+
+	flag_t get_flag() {
+		return h->t;
+	}
+
+	length_t get_off() {
+		return length_t((const char*)h - data.data());
+	}
+
+	void push_head(flag_t t) {
 		//add head
-		length_t off = data.size();
+		length_t off = (length_t)data.size();
+		data.resize(data.size() + head_t::head_size());
+		h = (head_t*)(data.data() + off);
+		h->t = t;
+	}
+
+	void push_head(flag_t t, const char* key, length_t kl) {
+		//add head
+		length_t off = (length_t)data.size();
 		data.resize(data.size() + head_t::head_size());
 		//add key end with '\0'
 		push_str(key, kl);
@@ -633,100 +752,28 @@ protected:
 		h->kl = kl;
 	}
 
-	void push_head_and_set(flag_t t) {
-		//add head
-		length_t off = data.size();
-		data.resize(data.size() + head_t::head_size());
-		//add key end with '\0'
-
-		h = (head_t*)(data.data() + off);
-		h->t = t;
-	}
-
-	void set_next(int off) {
-		head_t *th = (head_t*)(data.data() + off);
-		th->n = data.size();
-	}
-
-	void set_next() {
-		h->n = data.size();
-	}
-
-	void set_empty_next() {
-		h->n = 0;
-	}
-
-	void set_head(int off) {
-		h = (head_t*)(data.data() + off);
-	}
-
-	void set_empty_next(int off) {
-		h = (head_t*)(data.data() + off);
-		h->n = 0;
-	}
-
-	void set_child_or_length() {
-		h->cl = data.size();
-	}
-
-	flag_t get_flag() {
-		return h->t;
-	}
-
-	int get_off() {
-		return (const char*)h - data.data();
-	}
-
-	size_t get_data_size() {
-		return data.size();
-	}
-
-	void set_empty_child_or_length() {
-		h->cl = 0;
-	}
-
-	head_t& push_head(flag_t t) {
-		//add head
-		length_t off = data.size();
-		data.resize(data.size() + head_t::head_size());
-		head_t &head = *(head_t*)(data.data() + off);
-		head.t = t;
-		return head;
-	}
-
-	head_t& push_head(flag_t t, const char* key, length_t kl) {
-		//add head
-		length_t off = data.size();
-		data.resize(data.size() + head_t::head_size());
-		//add key end with '\0'
-		push_str(key, kl);
-
-		head_t &head = *(head_t*)(data.data() + off);
-		head.t = t;
-		head.kl = kl;
-		return head;
+	inline string& get_data() {
+		return data;
 	}
 
 	void set_flag(char f) {
 		h->t = f;
-		h->cl = data.size();
 	}
 
-	head_t& push_head_from(flag_t t, head_t* from) {
-		length_t old_off = (const char*)from - data.data();
+	void push_head_from(flag_t t, head_t* from) {
+		length_t old_off = length_t((const char*)from - data.data());
 		//add head
-		length_t off = data.size();
+		length_t off = length_t(data.size());
 		data.resize(data.size() + head_t::head_size());
 		//add key end with '\0'
 		from = (head_t*)(data.data() + old_off);
 		length_t kl = from->kl;
 		push_str(from->get_key(), kl);
 		//cur head
-		head_t &head = *(head_t*)(data.data() + off);
+		h = (head_t*)(data.data() + off);
 		//old_head
-		head.t = t;
-		head.kl = kl;
-		return head;
+		h->t = t;
+		h->kl = kl;
 	}
 
 	inline void push_str(const char* str, length_t len) {
@@ -734,19 +781,10 @@ protected:
 		data.append(1, '\0');
 	}
 
-	inline void push_str_and_set(const char* str, length_t len) {
-		h->t = type_flag_t::str_t;
-		h->cl = len;// data.size();
-		length_t head_off = (const char*)h - data.data();
-		data.append(str, len);
-		data.append(1, '\0');
-		h = (head_t*)(data.data() + head_off);
-	}
-
 	template<class N>
 	inline N& push_num() {
 		h->t = type_flag_t::num_t;
-		length_t head_off = (const char*)h - data.data();
+		length_t head_off = length_t((const char*)h - data.data());
 		data.resize(data.size() + sizeof(number_t));
 		h = (head_t*)(data.data() + head_off);
 		set_num_cl<N>();
@@ -755,22 +793,17 @@ protected:
 
 	template<class N>
 	inline void set_num_cl() {
-		h->cl = 1;
+		h->cl = type_flag_t::num_int_t;
 	}
 
 	template<>
 	inline void set_num_cl<double>() {
-		h->cl = 0;
+		h->cl = type_flag_t::num_double_t;
 	}
 
-
-	template<class N>
-	inline void push_num(N num) {
-		h->t = type_flag_t::num_t;
-		length_t head_off = (const char*)h - data.data();
-		data.resize(data.size() + sizeof(number_t));
-		h = (head_t*)(data.data() + head_off);
-		h->set_num(num);
+	template<>
+	inline void set_num_cl<float>() {
+		h->cl = type_flag_t::num_double_t;
 	}
 
 	void root_copy(json_value& jv) {
@@ -793,12 +826,13 @@ public:
 	~dynamic_json() {
 	}
 private:
-	//Non recursive implementation, so there is no limit on the depth, it is up on your memory size
-	//nested grammer
-	//obj:{ -> "key" -> : -> value -> }
-	//arr:[ -> value -> ]
+	//! Non recursive implementation, so there is no limit on the depth, it is up on your memory size
+	/*! \brief 	obj:{ -> "key" -> : -> value -> }
+				arr:[ -> value -> ]
+		\return a reference of json_value
+	*/
 	bool parse(json_stream &js) {
-		mystack stack;
+		json_stack stack;
 		parser::skip_space(js);
 
 		while (char ch = parser::get_cur_and_next(js)) {
@@ -810,11 +844,13 @@ private:
 				set_next();
 			}
 			else if (ch == parser::json_key_symbol::object_begin) {
-				if (get_flag() == type_flag_t::pre_t)
+				if (get_flag() == type_flag_t::pre_t) {
 					set_flag(type_flag_t::obj_t);
+					update_cl();
+				}
 				else {
-					push_head_and_set(type_flag_t::obj_t);
-					set_child_or_length();
+					push_head(type_flag_t::obj_t);
+					update_cl();
 				}
 				stack.push({ true,(int)get_off() });
 			}
@@ -824,21 +860,23 @@ private:
 					parser::get_next(js);
 					parser::skip_space(js);
 					set_flag(type_flag_t::arr_t);
-					set_empty_child_or_length();
+					update_cl0();
 					continue;
 				}
 				//[x,x,x] and [],[],[]
-				if (get_flag() == type_flag_t::pre_t)
+				if (get_flag() == type_flag_t::pre_t) {
 					set_flag(type_flag_t::arr_t);
+					update_cl();
+				}
 				else {
-					push_head_and_set(type_flag_t::arr_t);
-					set_child_or_length();
+					push_head(type_flag_t::arr_t);
+					update_cl();
 				}
 				stack.push({ false,(int)get_off() });
 			}
 			else if (ch == parser::json_key_symbol::object_end) {
 				if (stack.size() > 0 && stack.top().is_obj) {
-					set_head(stack.top().off);
+					update_head(stack.top().off);
 					stack.pop();
 				}
 				else {
@@ -849,7 +887,7 @@ private:
 			}
 			else if (ch == parser::json_key_symbol::array_end) {
 				if (stack.size() > 0 && !stack.top().is_obj) {
-					set_head(stack.top().off);
+					update_head(stack.top().off);
 					stack.pop();
 				}
 				else {
@@ -872,11 +910,7 @@ private:
 					if (ch == parser::json_key_symbol::str) {
 						//push head
 						const char* b = js.begin;
-						int kl = parser::skip_str(js);
-						push_head_and_set(type_flag_t::pre_t, b, kl/*parser::skip_str(js)*/);
-
-						if(string(b,kl) == " s p a c e d ")
-							b = b;
+						push_head(type_flag_t::pre_t, b, (length_t)parser::skip_str(js));
 
 						//check key_value separator
 						parser::skip_space(js);
@@ -886,7 +920,7 @@ private:
 					}
 					//if no value pop stack
 					else if (ch == parser::json_key_symbol::object_end) {
-						set_empty_child_or_length();
+						update_cl0();
 						stack.pop();
 						continue;
 					}
@@ -901,7 +935,7 @@ private:
 				}
 			}
 			else {
-				push_head_and_set(type_flag_t::pre_t);
+				push_head(type_flag_t::pre_t);
 			}
 
 			//step 3: parse value
@@ -910,8 +944,13 @@ private:
 			if (char ch = *js.begin) {
 				if (ch == parser::json_key_symbol::str) {
 					parser::get_next(js);
-					const char* b = js.begin;
-					push_str_and_set(b, parser::skip_str(js));
+					set_flag(type_flag_t::str_t);
+					int head_off = get_off();
+					size_t end = get_data().size();
+					parser::parse_str(get_data(), js);
+					update_head(head_off);
+					update_cl(length_t(get_data().size() - end));
+					get_data().append(1, '\0');
 				}
 				else if (ch == parser::json_key_symbol::object_begin) {
 					continue;
@@ -922,12 +961,12 @@ private:
 				else {
 					if (ch == 'f') {
 						js.begin += 5;
-						push_num(false);
+						push_num<bool>() = false;
 						set_flag(type_flag_t::boo_t);
 					}
 					else if(ch == 't'){
 						js.begin += 4;
-						push_num(true);
+						push_num<bool>() = true;
 						set_flag(type_flag_t::boo_t);
 					}
 					else if (ch == 'n') {
@@ -964,12 +1003,20 @@ public:
 	void copy_from(json_value& jv) {
 		root_copy(jv);
 	}
-	//json_value json_data;
+
+	//! get a value in object by key
+	/*! \param key
+		\return a reference of json_value
+	*/
 	json_value & operator [] (const char* key) {
 		init();
 		return json_value::operator[](key);
 	}
 
+	//! get a value in array by index
+	/*! \param index 
+		\return a reference of json_value
+	*/
 	json_value& operator [] (int index) {
 		init();
 		return json_value::operator[](index);
@@ -979,20 +1026,45 @@ public:
 		init();
 		return json_value::dump(str);
 	}
-	// if *json_value end with '\0',don't need the size arg
-	size_t unserialize(const char* json, size_t size = 0, char option = 0) {
+
+	//! unserialize a string with length
+	/*! \brief In this API, the value memery will pre_allocated once time, this is benificial to parse a big json with a high memery
+			   allocation efficiency, algorithm: size = size + size / 3 
+		\param js json format string
+		\param size the length of the jsonbuffer
+		\param option ASSERT|UNESCAPE|UNESCAPE_UNICODE, when there are multiple options, you can combat them by OR operation
+		\return the lenght of
+	*/
+	size_t unserialize(const char* json, size_t size, char option = 0) {
 		pre_allocate(size);
 		init();
 		const char* begin = json;
-		const char* end = nullptr;
-		if (size > 0)
-			end = begin + size;
-		json_stream js{ begin,end,option };
+		json_stream js{ begin,begin + size,option };
 		if (parse(js))
 			return js.begin - json;
 		return 0;
 	}
 
+	//! unserialize a string with end flag '\0'.
+	/*! \param js json format string
+		\param option ASSERT|UNESCAPE|UNESCAPE_UNICODE, when there are multiple options, you can combat them by OR operation
+		\return the lenght of
+	*/
+	size_t unserialize(const char* json, char option = 0) {
+		pre_allocate(0);
+		init();
+		const char* begin = json;
+		json_stream js{ begin,nullptr,option };
+		if (parse(js))
+			return js.begin - json;
+		return 0;
+	}
+
+	//! unserialize a string.
+	/*! \param js json format string
+		\param option ASSERT|UNESCAPE|UNESCAPE_UNICODE, when there are multiple options, you can combat them by OR operation
+		\return the lenght of
+	*/
 	size_t unserialize(string &js, char option = 0) {
 		return unserialize(js.data(), js.size(), option);
 	}
