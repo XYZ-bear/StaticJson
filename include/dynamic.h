@@ -175,7 +175,7 @@ protected:
 		}
 
 		char* get_val() {
-			if(kl < 256)
+			if(kl < 255)
 				return kl == 0 ? (char*)this + head_size() + kl : (char*)this + head_size() + kl + 1;
 			return (char*)this + head_size() + strlen(get_key()) + 1;
 		}
@@ -749,7 +749,11 @@ protected:
 
 		h = (head_t*)(data.data() + off);
 		h->t = t;
-		h->kl = kl;
+
+		if (kl < 255)
+			h->kl = kl;
+		else
+			h->kl = 255;
 	}
 
 	inline string& get_data() {
@@ -767,8 +771,8 @@ protected:
 		data.resize(data.size() + head_t::head_size());
 		//add key end with '\0'
 		from = (head_t*)(data.data() + old_off);
-		length_t kl = from->kl;
-		push_str(from->get_key(), kl);
+		key_t kl = from->kl;
+		push_str(from->get_key());
 		//cur head
 		h = (head_t*)(data.data() + off);
 		//old_head
@@ -778,6 +782,11 @@ protected:
 
 	inline void push_str(const char* str, length_t len) {
 		data.append(str, len);
+		data.append(1, '\0');
+	}
+
+	inline void push_str(const char* str) {
+		data.append(str);
 		data.append(1, '\0');
 	}
 
@@ -947,7 +956,9 @@ private:
 					set_flag(type_flag_t::str_t);
 					int head_off = get_off();
 					size_t end = get_data().size();
-					parser::parse_str(get_data(), js);
+					if (!parser::parse_str(get_data(), js)) {
+						ERROR_RETURT(js);
+					}
 					update_head(head_off);
 					update_cl(length_t(get_data().size() - end));
 					get_data().append(1, '\0');
@@ -974,11 +985,20 @@ private:
 						set_flag(type_flag_t::nul_t);
 					}
 					else {
-						if (parser::is_double(js)) {
-							parser::unserialize(&push_num<double>(), js);
+						char res = parser::is_double(js);
+						if (res == -1) {
+							if (!parser::unserialize(&push_num<double>(), js)) {
+								ERROR_RETURT(js);
+							}
 						}
-						else
-							parser::unserialize_int(&push_num<uint64_t>(), js);
+						else if(res == 1){
+							if (!parser::unserialize(&push_num<uint64_t>(), js)) {
+								ERROR_RETURT(js);
+							}
+						}
+						else {
+							ERROR_RETURT(js);
+						}
 					}
 				}
 			}

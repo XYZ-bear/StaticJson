@@ -8,6 +8,7 @@ void get_file(string path, string &res) {
 	string temp;
 	while (getline(myfile, temp)) {
 		res += temp;
+		res += '\n';
 	}
 	myfile.close();
 }

@@ -238,15 +238,26 @@ public:
 		return (ch == ' ' || (ch >= 0x00 && ch <= 0x1F) || ch == 0x7F);
 	}
 
-	static bool inline is_double(json_stream &js) {
+	static char inline is_double(json_stream &js) {
 		json_stream t = js;
+		if (*js.begin == '0') {
+			if (char ch = get_next(t)) {
+				if (ch == '.')
+					return -1;
+				else if (ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}')
+					return 1;
+				else
+					return 0;
+			}
+		}
+
 		while (char ch = get_cur_and_next(t)) {
 			if (ch == '.' || ch == 'e' || ch == 'E')
-				return true;
+				return -1;
 			else if ( ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}')
-				return false;
+				return 1;
 		}
-		return true;
+		return 0;
 	}
 
 	static void check_skip(json_stream &js) {
@@ -463,14 +474,6 @@ public:
 	inline static bool unserialize(uint64_t *data, json_stream &js) {
 		STRNG_TO_NUM(uint64_t, strtoull, strtod);
 	}
-	inline static bool unserialize_int(uint64_t *data, json_stream &js) {
-		char* endptr = nullptr;
-		*data = (uint64_t)strtoull(js.begin, &endptr, 10);
-		if (*endptr == '.' || *endptr == 'E' || *endptr == 'e')
-			return false;
-		(js.begin) = endptr;
-		return true;
-	}
 
 	inline static bool unserialize(double *data, json_stream &js) {
 		char *endptr;
@@ -599,7 +602,15 @@ public:
 			else if (ch == '\\') {
 				ch = get_cur_and_next(js);
 				if (!js.is_option(UNESCAPE)) {
-					if (ch == 'n') {
+					if (ch == '\"') {
+						val += '\"';
+						b = js.begin;
+					}
+					else if (ch == '\\') {
+						val += '\\';
+						b = js.begin;
+					}
+					else if (ch == 'n') {
 						val += '\n';
 						b = js.begin;
 					}
@@ -619,11 +630,22 @@ public:
 						val += '\r';
 						b = js.begin;
 					}
-					else if (ch == 'u' && !js.is_option(UNESCAPE_UNICODE)) {
-						parse_hex4(val, js);
+					else if (ch == '/') {
+						val += '/';
 						b = js.begin;
 					}
+					else if (ch == 'u') {
+						if (!js.is_option(UNESCAPE_UNICODE)) {
+							parse_hex4(val, js);
+							b = js.begin;
+						}
+					}
+					else
+						return false;
 				}
+			}
+			else if (ch < 0x20) {
+				return false;
 			}
 		}
 		return false;

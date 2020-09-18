@@ -188,16 +188,16 @@ TEST_CASE("char test") {
 	t.unserialize(R({ "str":  "123" }));
 	CHECK(t.str == "123");
 
-	t.unserialize(R({ "str":"\"http:\\www.google.com\"" }));
+	t.unserialize(R({ "str":"\"http:\\www.google.com\"" }),UNESCAPE);
 	CHECK(t.str == "\\\"http:\\\\www.google.com\\\"");
 
-	t.unserialize(R({ "str":"\\" }));
+	t.unserialize(R({ "str":"\\" }), UNESCAPE);
 	CHECK(t.str == "\\\\");
 
-	t.unserialize(R({ "str":"\\\"" }));
+	t.unserialize(R({ "str":"\\\"" }), UNESCAPE);
 	CHECK(t.str == "\\\\\\\"");
 
-	t.unserialize(R({ "str":"\abc" }));
+	t.unserialize(R({ "str":"\abc" }), UNESCAPE);
 	CHECK(t.str == "\\abc");
 
 	t.unserialize(R({ "str":"\u4f60" }),UNESCAPE_UNICODE);

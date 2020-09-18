@@ -8,9 +8,7 @@ extern void get_file(string path, string &res);
 
 TEST_CASE("dynamic add test") {
 	dynamic_json dj;
-
 	dj["a"] = 123;
-	string kk = dj["a"];
 
 	CHECK((dj["a"] == 123));
 	CHECK(dj["a"].is_number() == true);
@@ -51,6 +49,25 @@ TEST_CASE("unicode v test") {
 	dynamic_json dj;
 	dj.unserialize(R({ "a":"\u4f60" }));
 	cout << (const char*)dj["a"];
+}
+
+TEST_CASE("long key test") {
+	string key;
+	for (int i = 0; i < 280; i++) {
+		key += "a";
+	}
+	dynamic_json dj;
+	dj[key.c_str()] = 1223;
+
+	CHECK((dj[key.c_str()] == 1223));
+
+	string json;
+	json += "{\"";
+	json += key;
+	json += "\":789}";
+	dj.unserialize(json);
+
+	CHECK((dj[key.c_str()] == 789));
 }
 
 TEST_CASE("num limit test") {
@@ -172,22 +189,25 @@ TEST_CASE("parse test") {
 		}
 	}
 
+	uint8_t ojf = 255;
+
 	string js;
-	get_file(".//data//twitter.json", js);
+	get_file(".//data//canada.json", js);
 	//cout << js.c_str();
 	//for (char ch : js)
 	//	cout << ch;
 	//dynamic_json dj;
 	//dynamic_json dj3 = dj;
 
-	dynamic_json dj2;
-	dj2.unserialize(js);
+	
 
 	string ds;
 	//dj2.dump();
 	PERF(t1, 1) {
-		string ds;
-		dj2.dump(ds);
+		dynamic_json dj2;
+		dj2.unserialize(js.data());
+		//string ds;
+		//dj2.dump(ds);
 	}
 	//cout << ds;
 	//json_value::vector_helper fv;
@@ -200,5 +220,9 @@ TEST_CASE("parse test") {
 	//		dj2["statuses"][90]["user"].build_map_helper(mv);
 	//	mv["notifications"];
 	//}
+
+	dj.unserialize(R([]));
+
+
 }
 
