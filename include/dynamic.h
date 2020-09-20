@@ -71,7 +71,7 @@ public:
 	};
 	vector<info> vec;
 	json_stack() {
-		vec.reserve(20);
+		vec.reserve(6);
 	}
 	void push(const info& in) {
 		vec.emplace_back(in);
@@ -191,7 +191,7 @@ protected:
 
 		template<class N>
 		N get_num() {
-			if (t == type_flag_t::num_t)
+			if (t == type_flag_t::num_t || type_flag_t::boo_t)
 				return *(N*)(get_val());
 			return 0;
 		}
@@ -304,6 +304,53 @@ public:
 			else if (h->t == type_flag_t::pre_t) {
 				push_num<N>() = num;
 			}
+			else if (h->t == type_flag_t::emp_t) {
+				push_head(type_flag_t::num_t);
+				push_num<N>() = num;
+			}
+			else {
+				h->t = type_flag_t::del_t;
+				h->n = (next_t)data.size();
+				push_head_from(type_flag_t::num_t, h);
+				push_num<N>() = num;
+			}
+		}
+	}
+
+	//! assign bool
+	void operator = (bool num) {
+		if (h) {
+			if (h->t == type_flag_t::boo_t)
+				h->set_num(num);
+			else if (h->t == type_flag_t::pre_t) {
+				push_num<bool>() = num;
+				h->cl = 0;
+				h->t = type_flag_t::boo_t;
+			}
+			else if (h->t == type_flag_t::emp_t) {
+				push_head(type_flag_t::boo_t);
+				push_num<bool>() = num;
+			}
+			else {
+				h->t = type_flag_t::del_t;
+				h->n = (next_t)data.size();
+				push_head_from(type_flag_t::boo_t, h);
+				push_num<bool>() = num;
+			}
+		}
+	}
+
+	//! assign null
+	void operator = (nullptr_t null) {
+		if (h) {
+			if (h->t == type_flag_t::pre_t || h->t == type_flag_t::emp_t) {
+				h->t = type_flag_t::nul_t;
+			}
+			else {
+				h->t = type_flag_t::del_t;
+				h->n = (next_t)data.size();
+				push_head(type_flag_t::nul_t);
+			}
 		}
 	}
 
@@ -327,7 +374,18 @@ public:
 			else if (h->t == type_flag_t::pre_t) {
 				h->t = type_flag_t::str_t;
 				h->cl = len;
+				length_t off = data.size();
 				push_str(str, len);
+			}
+			else if (h->t == type_flag_t::emp_t) {
+				push_head(type_flag_t::str_t);
+				h->cl = len;
+				push_str(str, len);
+			}
+			else if ((h->t == type_flag_t::num_t || h->t == type_flag_t::boo_t) && len < sizeof(number_t)) {
+				h->t = type_flag_t::str_t;
+				h->cl = len;
+				h->set_string(str, len + 1);
 			}
 			else {
 				h->t = type_flag_t::del_t;
@@ -381,8 +439,16 @@ public:
 	template<class N>
 	bool operator == (N num) {
 		static_assert(is_arithmetic<N>::value != 0, "Must be arithmetic type");
-		if (h->t == type_flag_t::num_t)
+		if (h->t == type_flag_t::num_t || h->t == type_flag_t::boo_t)
 			return h->get_num<N>() == num;
+		else
+			return false;
+	}
+
+	//! compare with null
+	bool operator == (nullptr_t null) {
+		if (h->t == type_flag_t::nul_t)
+			return true;
 		else
 			return false;
 	}
@@ -513,7 +579,8 @@ public:
 		}
 	}
 
-	void dump(string &str) {
+	void serialize(string &str) {
+		str.resize(0);
 		str.reserve(data.size());
 		json_stack stack;
 		head_t *th = h;
@@ -614,6 +681,28 @@ private:
 	// if you really really want to copy a entity, please use copy_from
 	json_value(const json_value &) = delete;
 	json_value& operator = (const json_value&) = delete;
+
+	head_t* goto_next_usable_head() {
+		if (h ) {
+			const char* begin = data.data();
+			// point to the child begin
+			head_t *th = h;
+			while (th) {
+				// if this node was deleted -> jump
+				if (th->t != type_flag_t::del_t) {
+					h = th;
+					return th;
+				}
+				// return the end head
+				if (!th->n)
+					return th;
+				// point to the brother head
+				th = (head_t*)(begin + th->n);
+			}
+			return th;
+		}
+		return nullptr;
+	}
 
 	length_t count_size() {
 		if (h && h->cl) {
@@ -772,7 +861,8 @@ protected:
 		//add key end with '\0'
 		from = (head_t*)(data.data() + old_off);
 		key_t kl = from->kl;
-		push_str(from->get_key());
+		if (kl)
+			push_str(from->get_key());
 		//cur head
 		h = (head_t*)(data.data() + off);
 		//old_head
@@ -781,13 +871,17 @@ protected:
 	}
 
 	inline void push_str(const char* str, length_t len) {
+		length_t head_off = length_t((const char*)h - data.data());
 		data.append(str, len);
 		data.append(1, '\0');
+		h = (head_t*)(data.data() + head_off);
 	}
 
 	inline void push_str(const char* str) {
+		length_t head_off = length_t((const char*)h - data.data());
 		data.append(str);
 		data.append(1, '\0');
+		h = (head_t*)(data.data() + head_off);
 	}
 
 	template<class N>
@@ -835,6 +929,57 @@ public:
 	~dynamic_json() {
 	}
 private:
+	bool parse_string(json_stream &js) {
+		parser::get_next(js);
+		set_flag(type_flag_t::str_t);
+		int head_off = get_off();
+		size_t end = get_data().size();
+		if (!parser::parse_str(get_data(), js)) {
+			ERROR_RETURT(js);
+		}
+		update_head(head_off);
+		update_cl(length_t(get_data().size() - end));
+		get_data().append(1, '\0');
+		return true;
+	}
+
+	bool parse_number(json_stream &js) {
+		if (char ch = *js.begin) {
+			if (ch == 'f') {
+				js.begin += 5;
+				push_num<bool>() = false;
+				set_flag(type_flag_t::boo_t);
+			}
+			else if (ch == 't') {
+				js.begin += 4;
+				push_num<bool>() = true;
+				set_flag(type_flag_t::boo_t);
+			}
+			else if (ch == 'n') {
+				js.begin += 4;
+				set_flag(type_flag_t::nul_t);
+			}
+			else {
+				char res = parser::is_double(js);
+				if (res == -1) {
+					if (!parser::unserialize(&push_num<double>(), js)) {
+						ERROR_RETURT(js);
+					}
+				}
+				else if (res == 1) {
+					if (!parser::unserialize(&push_num<uint64_t>(), js)) {
+						ERROR_RETURT(js);
+					}
+				}
+				else {
+					ERROR_RETURT(js);
+				}
+			}
+		}
+		return true;
+	}
+
+
 	//! Non recursive implementation, so there is no limit on the depth, it is up on your memory size
 	/*! \brief 	obj:{ -> "key" -> : -> value -> }
 				arr:[ -> value -> ]
@@ -844,94 +989,110 @@ private:
 		json_stack stack;
 		parser::skip_space(js);
 
-		while (char ch = parser::get_cur_and_next(js)) {
-			//step 1: check start tokens , [ {
-			//--------------------------------------------------------
+
+		if (*js.begin == parser::json_key_symbol::str) {
+			push_head(type_flag_t::pre_t);
+			parse_string(js);
 			parser::skip_space(js);
-			// , end and begin token
-			if (ch == parser::json_key_symbol::next_key_value) {
-				set_next();
-			}
-			else if (ch == parser::json_key_symbol::object_begin) {
-				if (get_flag() == type_flag_t::pre_t) {
-					set_flag(type_flag_t::obj_t);
-					update_cl();
-				}
-				else {
-					push_head(type_flag_t::obj_t);
-					update_cl();
-				}
-				stack.push({ true,(int)get_off() });
-			}
-			else if (ch == parser::json_key_symbol::array_begin) {
-				//[], empty array
-				if (*js.begin == parser::json_key_symbol::array_end) {
-					parser::get_next(js);
-					parser::skip_space(js);
-					set_flag(type_flag_t::arr_t);
-					update_cl0();
-					continue;
-				}
-				//[x,x,x] and [],[],[]
-				if (get_flag() == type_flag_t::pre_t) {
-					set_flag(type_flag_t::arr_t);
-					update_cl();
-				}
-				else {
-					push_head(type_flag_t::arr_t);
-					update_cl();
-				}
-				stack.push({ false,(int)get_off() });
-			}
-			else if (ch == parser::json_key_symbol::object_end) {
-				if (stack.size() > 0 && stack.top().is_obj) {
-					update_head(stack.top().off);
-					stack.pop();
-				}
-				else {
-					ERROR_RETURT(js);
-				}
-				parser::skip_space(js);
-				continue;
-			}
-			else if (ch == parser::json_key_symbol::array_end) {
-				if (stack.size() > 0 && !stack.top().is_obj) {
-					update_head(stack.top().off);
-					stack.pop();
-				}
-				else {
-					ERROR_RETURT(js);
-				}
-				parser::skip_space(js);
-				continue;
-			}
-			if (stack.size() == 0) {
+			if (*js.begin != '\0') {
 				ERROR_RETURT(js);
 			}
-
-			//step 2: parse key
-			//-----------------------------------------------------------
-			//{ "x":x } obj head with key ,or [x,x,x] arr head without key 
-			parser::skip_space(js);
-			if (stack.top().is_obj) {
-				if (ch = parser::get_cur_and_next(js)) {
-					//key must start with quote
-					if (ch == parser::json_key_symbol::str) {
-						//push head
-						const char* b = js.begin;
-						push_head(type_flag_t::pre_t, b, (length_t)parser::skip_str(js));
-
-						//check key_value separator
+			return true;
+		}
+		else if (*js.begin == parser::json_key_symbol::object_begin || *js.begin == parser::json_key_symbol::array_begin) {
+			while (char ch = parser::get_cur_and_next(js)) {
+				//step 1: check start tokens , [ {
+				//--------------------------------------------------------
+				parser::skip_space(js);
+				// , end and begin token
+				if (ch == parser::json_key_symbol::next_key_value) {
+					set_next();
+				}
+				else if (ch == parser::json_key_symbol::object_begin) {
+					if (get_flag() == type_flag_t::pre_t) {
+						set_flag(type_flag_t::obj_t);
+						update_cl();
+					}
+					else {
+						push_head(type_flag_t::obj_t);
+						update_cl();
+					}
+					stack.push({ true,(int)get_off() });
+				}
+				else if (ch == parser::json_key_symbol::array_begin) {
+					//[], empty array
+					if (*js.begin == parser::json_key_symbol::array_end) {
+						parser::get_next(js);
 						parser::skip_space(js);
-						if (parser::get_cur_and_next(js) != parser::json_key_symbol::key_value_separator) {
+						set_flag(type_flag_t::arr_t);
+						update_cl0();
+						continue;
+					}
+					//[x,x,x] and [],[],[]
+					if (get_flag() == type_flag_t::pre_t) {
+						set_flag(type_flag_t::arr_t);
+						update_cl();
+					}
+					else {
+						push_head(type_flag_t::arr_t);
+						update_cl();
+					}
+					stack.push({ false,(int)get_off() });
+				}
+				else if (ch == parser::json_key_symbol::object_end) {
+					if (stack.size() > 0 && stack.top().is_obj) {
+						update_head(stack.top().off);
+						stack.pop();
+					}
+					else {
+						ERROR_RETURT(js);
+					}
+					parser::skip_space(js);
+					continue;
+				}
+				else if (ch == parser::json_key_symbol::array_end) {
+					if (stack.size() > 0 && !stack.top().is_obj) {
+						update_head(stack.top().off);
+						stack.pop();
+					}
+					else {
+						ERROR_RETURT(js);
+					}
+					parser::skip_space(js);
+					continue;
+				}
+				if (stack.size() == 0) {
+					ERROR_RETURT(js);
+				}
+
+				//step 2: parse key
+				//-----------------------------------------------------------
+				//{ "x":x } obj head with key ,or [x,x,x] arr head without key 
+				parser::skip_space(js);
+				if (stack.top().is_obj) {
+					if (ch = parser::get_cur_and_next(js)) {
+						//key must start with quote
+						if (ch == parser::json_key_symbol::str) {
+							//push head
+							const char* b = js.begin;
+							push_head(type_flag_t::pre_t, b, (length_t)parser::skip_str(js));
+
+							//check key_value separator
+							parser::skip_space(js);
+							if (parser::get_cur_and_next(js) != parser::json_key_symbol::key_value_separator) {
+								ERROR_RETURT(js);
+							}
+						}
+						//if no value pop stack
+						else if (ch == parser::json_key_symbol::object_end) {
+							update_cl0();
+							stack.pop();
+							continue;
+						}
+						else {
+							//error format
 							ERROR_RETURT(js);
 						}
-					}
-					//if no value pop stack
-					else if (ch == parser::json_key_symbol::object_end) {
-						update_cl0();
-						stack.pop();
-						continue;
 					}
 					else {
 						//error format
@@ -939,84 +1100,53 @@ private:
 					}
 				}
 				else {
-					//error format
-					ERROR_RETURT(js);
+					push_head(type_flag_t::pre_t);
 				}
-			}
-			else {
-				push_head(type_flag_t::pre_t);
-			}
 
-			//step 3: parse value
-			//-----------------------------------------------------------
-			parser::skip_space(js);
-			if (char ch = *js.begin) {
-				if (ch == parser::json_key_symbol::str) {
-					parser::get_next(js);
-					set_flag(type_flag_t::str_t);
-					int head_off = get_off();
-					size_t end = get_data().size();
-					if (!parser::parse_str(get_data(), js)) {
-						ERROR_RETURT(js);
+				//step 3: parse value
+				//-----------------------------------------------------------
+				parser::skip_space(js);
+				if (char ch = *js.begin) {
+					if (ch == parser::json_key_symbol::str) {
+						if (!parse_string(js))
+							return false;
 					}
-					update_head(head_off);
-					update_cl(length_t(get_data().size() - end));
-					get_data().append(1, '\0');
-				}
-				else if (ch == parser::json_key_symbol::object_begin) {
-					continue;
-				}
-				else if (ch == parser::json_key_symbol::array_begin) {
-					continue;
-				}
-				else {
-					if (ch == 'f') {
-						js.begin += 5;
-						push_num<bool>() = false;
-						set_flag(type_flag_t::boo_t);
+					else if (ch == parser::json_key_symbol::object_begin) {
+						continue;
 					}
-					else if(ch == 't'){
-						js.begin += 4;
-						push_num<bool>() = true;
-						set_flag(type_flag_t::boo_t);
-					}
-					else if (ch == 'n') {
-						js.begin += 4;
-						set_flag(type_flag_t::nul_t);
+					else if (ch == parser::json_key_symbol::array_begin) {
+						continue;
 					}
 					else {
-						char res = parser::is_double(js);
-						if (res == -1) {
-							if (!parser::unserialize(&push_num<double>(), js)) {
-								ERROR_RETURT(js);
-							}
-						}
-						else if(res == 1){
-							if (!parser::unserialize(&push_num<uint64_t>(), js)) {
-								ERROR_RETURT(js);
-							}
-						}
-						else {
-							ERROR_RETURT(js);
-						}
+						if (!parse_number(js))
+							return false;
 					}
 				}
-			}
-			parser::skip_space(js);
+				parser::skip_space(js);
 
-			//step 4: check end tokens
-			//-----------------------------------------------------------
-			//check end token only } ] , is allowed
-			if (*js.begin == parser::json_key_symbol::next_key_value || *js.begin == parser::json_key_symbol::object_end || *js.begin == parser::json_key_symbol::array_end) {
-				continue;
+				//step 4: check end tokens
+				//-----------------------------------------------------------
+				//check end token only } ] , is allowed
+				if (*js.begin == parser::json_key_symbol::next_key_value || *js.begin == parser::json_key_symbol::object_end || *js.begin == parser::json_key_symbol::array_end) {
+					continue;
+				}
+
+				ERROR_RETURT(js);
+				//-----------------------------------------------------------
 			}
 
-			ERROR_RETURT(js);
-			//-----------------------------------------------------------
+			if (stack.size() == 0)
+				return true;
 		}
-
-		if (stack.size() == 0)
+		else {
+			push_head(type_flag_t::pre_t);
+			parse_number(js);
+			parser::skip_space(js);
+			if (*js.begin != '\0') {
+				ERROR_RETURT(js);
+			}
 			return true;
+		}
 		return false;
 	}
 public:
@@ -1042,9 +1172,34 @@ public:
 		return json_value::operator[](index);
 	}
 
-	void dump(string &str) {
+	//! assign a number
+	template<class N>
+	void operator = (N num) {
 		init();
-		return json_value::dump(str);
+		return json_value::operator=(num);
+	}
+
+	//! assign a string
+	void operator = (const char* str) {
+		init();
+		return json_value::operator=(str);
+	}
+
+	//! assign a string
+	void operator = (bool num) {
+		init();
+		return json_value::operator=(num);
+	}
+
+	//! assign null
+	void operator = (nullptr_t null) {
+		init();
+		return json_value::operator=(null);
+	}
+
+	void serialize(string &str) {
+		init();
+		return json_value::serialize(str);
 	}
 
 	//! unserialize a string with length

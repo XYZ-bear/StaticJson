@@ -257,7 +257,7 @@ public:
 			else if ( ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}')
 				return 1;
 		}
-		return 0;
+		return 1;
 	}
 
 	static void check_skip(json_stream &js) {
@@ -350,9 +350,9 @@ public:
 	}
 public:
 	static char inline get_cur_and_next(json_stream &js) {
-		if (js.end && js.end < (js.begin + 1))
-			return '\0';
-		else
+		//if (js.end && js.end < (js.begin + 1))
+		//	return '\0';
+		//else
 			return *((js.begin)++);
 	}
 
