@@ -281,6 +281,12 @@ public:
 		return *this;
 	}
 
+	json_value& operator +=(json_value& other){
+
+
+		return *this;
+	}
+
 	//! get the next value head
 	/*! 
 		\return	If this is the last value return true else return false
@@ -498,11 +504,11 @@ public:
 	}
 
 	bool is_number_int() {
-		return h->t == type_flag_t::num_int_t;
+		return h->cl == type_flag_t::num_int_t;
 	}
 
 	bool is_number_double() {
-		return h->t == type_flag_t::num_double_t;
+		return h->cl == type_flag_t::num_double_t;
 	}
 
 	//! get the child size or value size
@@ -524,7 +530,10 @@ public:
 				in {} -> return the key
 	*/
 	const char* key() {
-		return h->get_key();
+		if (h->kl)
+			return h->get_key();
+		else
+			return nullptr;
 	}
 
 	//! build all the same level data to a map
@@ -575,6 +584,102 @@ public:
 				// point to the brother head
 				th = (head_t*)(begin + th->n);
 
+			}
+		}
+	}
+
+	struct traverse_helper
+	{
+		json_stack stack;
+		head_t *th = nullptr;
+		bool end = false;
+		operator bool() {
+			return !end;
+		}
+		bool is_object_member() {
+			if (stack.size())
+				return stack.top().is_obj;
+			return false;
+		}
+		bool is_array_member() {
+			if (stack.size())
+				return !stack.top().is_obj;
+			return false;
+		}
+		void reset() {
+			is_array_begin = false;
+			is_array_end = false;
+			is_object_begin = false;
+			is_object_end = false;
+		}
+		bool is_array_begin = false;
+		bool is_array_end = false;
+		bool is_object_begin = false;
+		bool is_object_end = false;
+	};
+
+	bool next(traverse_helper& helper) {
+		if (helper.th) {
+			if (helper.is_array_end || helper.is_object_end) {
+				if (helper.th->n)
+					h = (head_t*)(data.data() + helper.th->n);
+				else {
+					if (helper.stack.size() > 0) {
+						if (helper.stack.top().is_obj)
+							helper.is_object_end = true;
+						else
+							helper.is_array_end = true;
+						helper.th = (head_t*)(data.data() + helper.stack.top().off);
+						//h = helper.th;
+						helper.stack.pop();
+						if (helper.stack.size() == 0) {
+							return false;
+						}
+
+					}
+					else {
+						return false;
+					}
+				}
+			}
+			else
+				h = helper.th;
+			helper.reset();
+		}
+
+		if (h->t == type_flag_t::obj_t) {
+			helper.stack.push({ true,(int)((const char*)h - data.data()) });
+			helper.th = (head_t*)(data.data() + h->cl);
+			helper.is_object_begin = true;
+			return true;
+		}
+		else if (h->t == type_flag_t::arr_t) {
+			helper.stack.push({ false,(int)((const char*)h - data.data()) });
+			helper.th = (head_t*)(data.data() + h->cl);
+			helper.is_array_begin = true;
+			return true;
+		}
+		if (h->n) {
+			helper.th = (head_t*)(data.data() + h->n);
+			return true;
+		}
+		else {
+			pop:
+			if (helper.stack.size() > 0){
+				if (helper.stack.top().is_obj)
+					helper.is_object_end = true;
+				else
+					helper.is_array_end = true;
+				helper.th = (head_t*)(data.data() + helper.stack.top().off);
+				helper.stack.pop();
+				if (helper.stack.size() == 0) {
+					helper.end = true;
+					return *this;
+				}
+				return true;
+			}
+			else {
+				return false;
 			}
 		}
 	}
@@ -1196,6 +1301,11 @@ public:
 		init();
 		return json_value::operator=(null);
 	}
+
+	//json_value& next(traverse_helper& helper) {
+	//	init();
+	//	return json_value::next(helper);
+	//}
 
 	void serialize(string &str) {
 		init();

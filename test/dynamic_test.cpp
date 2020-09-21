@@ -157,6 +157,29 @@ TEST_CASE("serialize test") {
 	dj2["o"] = false;
 	dj2.serialize(str);
 	CHECK((str == R({"c":{"d":14,"e":"hello"},"d":{"e":"e","b":123},"e":[123,456,789],"f":["a","b"],"k":[{"a":789}],"j":null,"m":true,"o":false})));
+
+	dynamic_json::traverse_helper th;
+	while (dj2.next(th)) {
+		if (th.is_object_member() && dj2.key())
+			cout << dj2.key();
+
+		if (th.is_array_begin)
+			cout << "[";
+		else if (th.is_array_end)
+			cout << "]";
+		else if (th.is_object_begin)
+			cout << "{";
+		else if (th.is_object_end)
+			cout << "}";
+		else {
+			if (dj2.is_string())
+				cout << ":" << (const char*)dj2;
+			else if (dj2.is_number_double())
+				cout << ":" << (double)dj2;
+			else if (dj2.is_number_int())
+				cout << ":" << (int64_t)dj2;
+		}
+	}
 }
 
 TEST_CASE("parse test") {
@@ -239,19 +262,13 @@ TEST_CASE("parse test") {
 	uint8_t ojf = 255;
 
 	string js;
-	get_file(".//data//canada.json", js);
+	get_file(".//data//generated.json", js);
 	
-	dj.unserialize(R("fsf"));
-	const char* jfs = dj;
-	dj.unserialize(R(1232));
-	int gg= dj;
-	string ds;
-	//dj2.dump();
-	string sff = R({ "d":1.7976931348623157,"f" : "hellllllllllllllllll","c" : {"a":false},"d" : [null,null] });
 	PERF(t1, 1) {
 		dynamic_json dj2;
-		dj2.unserialize(sff);
+		dj2.unserialize(js);
 	}
 
+	
 }
 
