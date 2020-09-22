@@ -350,9 +350,9 @@ public:
 	}
 public:
 	static char inline get_cur_and_next(json_stream &js) {
-		//if (js.end && js.end < (js.begin + 1))
-		//	return '\0';
-		//else
+		if (js.end && js.end < (js.begin + 1))
+			return '\0';
+		else
 			return *((js.begin)++);
 	}
 
@@ -596,7 +596,7 @@ public:
 		const char* b = js.begin;
 		while (char ch = get_cur_and_next(js)) {
 			if (ch == json_key_symbol::str) {
-				val.append(b, js.begin - 1);
+				val.append(b, js.begin - b - 1);
 				return true;
 			}
 			else if (ch == '\\') {

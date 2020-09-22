@@ -978,14 +978,14 @@ protected:
 	inline void push_str(const char* str, length_t len) {
 		length_t head_off = length_t((const char*)h - data.data());
 		data.append(str, len);
-		data.append(1, '\0');
+		data += '\0';
 		h = (head_t*)(data.data() + head_off);
 	}
 
 	inline void push_str(const char* str) {
 		length_t head_off = length_t((const char*)h - data.data());
-		data.append(str);
-		data.append(1, '\0');
+		data += str;
+		data += '\0';
 		h = (head_t*)(data.data() + head_off);
 	}
 
@@ -1044,7 +1044,7 @@ private:
 		}
 		update_head(head_off);
 		update_cl(length_t(get_data().size() - end));
-		get_data().append(1, '\0');
+		get_data() += '\0';
 		return true;
 	}
 
