@@ -157,29 +157,6 @@ TEST_CASE("serialize test") {
 	dj2["o"] = false;
 	dj2.serialize(str);
 	CHECK((str == R({"c":{"d":14,"e":"hello"},"d":{"e":"e","b":123},"e":[123,456,789],"f":["a","b"],"k":[{"a":789}],"j":null,"m":true,"o":false})));
-
-	dynamic_json::traverse_helper th;
-	while (dj2.next(th)) {
-		if (th.is_object_member() && dj2.key())
-			cout << dj2.key();
-
-		if (th.is_array_begin)
-			cout << "[";
-		else if (th.is_array_end)
-			cout << "]";
-		else if (th.is_object_begin)
-			cout << "{";
-		else if (th.is_object_end)
-			cout << "}";
-		else {
-			if (dj2.is_string())
-				cout << ":" << (const char*)dj2;
-			else if (dj2.is_number_double())
-				cout << ":" << (double)dj2;
-			else if (dj2.is_number_int())
-				cout << ":" << (int64_t)dj2;
-		}
-	}
 }
 
 TEST_CASE("parse test") {
@@ -262,13 +239,17 @@ TEST_CASE("parse test") {
 	uint8_t ojf = 255;
 
 	string js;
-	get_file(".//data//generated.json", js);
-	
-	PERF(t1, 1) {
-		dynamic_json dj2;
-		dj2.unserialize(js);
+	get_file(".//data//twitter.json", js);
+	dynamic_json dj2;
+	dj2.unserialize(js);
+	int a = 0;
+	auto &fsh = dj2["statuses"][0];
+	//dynamic_json::ghhh ggh = fsh.gg_h();
+	string ts(R({ "d":1.7976931348623157,"b" : "afsf","c" : [123,456],"f" : {"r":false,"r2" : true,"n" : null} }));
+	PERF(canada_test, 10000000) {
+		dynamic_json d;
+		d.unserialize(ts);
 	}
-
 	
 }
 

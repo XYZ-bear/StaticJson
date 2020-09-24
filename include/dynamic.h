@@ -2,6 +2,7 @@
 
 #include "static_json.h"
 #include <vector>
+#include <functional>
 #include <map>
 
 /*Linear chain storage structure
@@ -9,7 +10,7 @@ Linear: Physical Structure,line memory space,like vector,
 Chain: Logical Structure, the nodes linked by logical
 
 In this structure, we can estimate the size of space in advance by the json length, and release the space once time
-When visit the nodes, we can visit the brother nodes and child nodes by the head info
+When visit the nodes, we will get a high memeory catch hit rate.
 
 |---- | -------|---- | -------|---- | -------|---- | -------
   head	value   head	value   head	value  head	value ......
@@ -38,7 +39,9 @@ template <class T>
 class json_iterator
 {
 public:
-	json_iterator(T * pp,bool o) :p(pp),end(o) {}
+	json_iterator(T * pp,bool o,int off) :p(pp),end(o) {
+		begin = off;
+	}
 
 	json_iterator(const json_iterator<T> &i) :p(i.p) {}
 
@@ -53,17 +56,19 @@ public:
 	T & operator *() { return *p; }
 
 	T & operator ++() { 
-		end = ++(*p);
+		end = p->next(begin);
 		return *p;
 	}
 private:
 	T * p;
 	bool end;
+	int begin;
 };
 
-
+//! Array - based stack structure
 class json_stack {
 public:
+	//! Used to record stack information
 	struct info
 	{
 		bool is_obj;
@@ -87,6 +92,7 @@ public:
 	}
 };
 
+//! an efficient array-linked structure
 struct json_value {
 public:
 	//! inorder to support old compiler, separeate with type_flag_t
@@ -142,14 +148,23 @@ public:
 			return *root;
 		}
 	};
-protected:
 
+protected:
 #pragma pack(push,1)
-	struct head_t
-	{
+	//! Head interpreter
+	struct head_t{
+		//! type
 		flag_t t;
+
+		//! next node offset
 		next_t n;
+
+		//! t == arr_t or obj_t -> cl = child offset
+		//  t == num_t -> cl = sub_type (num_int_t or num_double_t)
+		//  t == str_t -> cl = strlen
 		length_t cl;
+
+		//! key length
 		key_t kl;
 
 		head_t() {
@@ -218,15 +233,16 @@ public:
 
 	//! the begin json_iteratorator
 	json_iterator<json_value> begin() {
+		length_t off = get_off();
 		if (h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) {
 			h = (head_t*)(data.data() + h->cl);
 		}
-		return json_iterator<json_value>(this, false);
+		return json_iterator<json_value>(this, false, off);
 	}
 
 	//! the end json_iteratorator
 	json_iterator<json_value> end() {
-		return json_iterator<json_value>(this, true);
+		return json_iterator<json_value>(this, true, 0);
 	}
 
 	//! get object value
@@ -281,23 +297,19 @@ public:
 		return *this;
 	}
 
-	json_value& operator +=(json_value& other){
-
-
-		return *this;
-	}
-
 	//! get the next value head
 	/*! 
 		\return	If this is the last value return true else return false
 	*/
-	bool operator ++() {
+	bool next(length_t begin = 0) {
 		if (h->n) {
 			h = (head_t*)(data.data() + h->n);
 			return false;
 		}
-		else
+		else {
+			h = (head_t*)(data.data() + begin);
 			return true;
+		}
 	}
 
 	//! assign a number
@@ -533,7 +545,7 @@ public:
 		if (h->kl)
 			return h->get_key();
 		else
-			return nullptr;
+			return "";
 	}
 
 	//! build all the same level data to a map
@@ -588,102 +600,6 @@ public:
 		}
 	}
 
-	struct traverse_helper
-	{
-		json_stack stack;
-		head_t *th = nullptr;
-		bool end = false;
-		operator bool() {
-			return !end;
-		}
-		bool is_object_member() {
-			if (stack.size())
-				return stack.top().is_obj;
-			return false;
-		}
-		bool is_array_member() {
-			if (stack.size())
-				return !stack.top().is_obj;
-			return false;
-		}
-		void reset() {
-			is_array_begin = false;
-			is_array_end = false;
-			is_object_begin = false;
-			is_object_end = false;
-		}
-		bool is_array_begin = false;
-		bool is_array_end = false;
-		bool is_object_begin = false;
-		bool is_object_end = false;
-	};
-
-	bool next(traverse_helper& helper) {
-		if (helper.th) {
-			if (helper.is_array_end || helper.is_object_end) {
-				if (helper.th->n)
-					h = (head_t*)(data.data() + helper.th->n);
-				else {
-					if (helper.stack.size() > 0) {
-						if (helper.stack.top().is_obj)
-							helper.is_object_end = true;
-						else
-							helper.is_array_end = true;
-						helper.th = (head_t*)(data.data() + helper.stack.top().off);
-						//h = helper.th;
-						helper.stack.pop();
-						if (helper.stack.size() == 0) {
-							return false;
-						}
-
-					}
-					else {
-						return false;
-					}
-				}
-			}
-			else
-				h = helper.th;
-			helper.reset();
-		}
-
-		if (h->t == type_flag_t::obj_t) {
-			helper.stack.push({ true,(int)((const char*)h - data.data()) });
-			helper.th = (head_t*)(data.data() + h->cl);
-			helper.is_object_begin = true;
-			return true;
-		}
-		else if (h->t == type_flag_t::arr_t) {
-			helper.stack.push({ false,(int)((const char*)h - data.data()) });
-			helper.th = (head_t*)(data.data() + h->cl);
-			helper.is_array_begin = true;
-			return true;
-		}
-		if (h->n) {
-			helper.th = (head_t*)(data.data() + h->n);
-			return true;
-		}
-		else {
-			pop:
-			if (helper.stack.size() > 0){
-				if (helper.stack.top().is_obj)
-					helper.is_object_end = true;
-				else
-					helper.is_array_end = true;
-				helper.th = (head_t*)(data.data() + helper.stack.top().off);
-				helper.stack.pop();
-				if (helper.stack.size() == 0) {
-					helper.end = true;
-					return *this;
-				}
-				return true;
-			}
-			else {
-				return false;
-			}
-		}
-	}
-
 	void serialize(string &str) {
 		str.resize(0);
 		str.reserve(data.size());
@@ -701,7 +617,6 @@ public:
 					else {
 						str += "\"\":";
 					}
-					
 				}
 
 				if (th->t == type_flag_t::obj_t) {
@@ -732,7 +647,7 @@ public:
 				}
 
 				if (th->t == type_flag_t::num_t) {
-					if (th->cl) {
+					if (th->cl == type_flag_t::num_int_t) {
 						int64_t i64 = th->get_num<int64_t>();
 						parser::serialize(&i64, str);
 					}
@@ -884,12 +799,16 @@ private:
 	}
 
 protected:
+	void update_head(int off) {
+		h = (head_t*)(data.data() + off);
+	}
+
 	void init() {
 		h = (head_t*)data.data();
 	}
 
 	void pre_allocate(size_t base_size) {
-		data.reserve(base_size + base_size / 3);
+		data.reserve(base_size + base_size / 3 );
 		data.resize(0);
 	}
 
@@ -902,9 +821,6 @@ protected:
 		h->n = (next_t)data.size();
 	}
 
-	void update_head(int off) {
-		h = (head_t*)(data.data() + off);
-	}
 
 	void update_cl() {
 		h->cl = (length_t)data.size();
@@ -1024,9 +940,7 @@ private:
 	head_t* h;
 };
 
-
-#define ERROR_RETURT(opt) cout << "[error]:" << opt.begin;assert(!js.is_option(ASSERT));cout<<endl;return false;
-
+//! a Non - recursive based parser
 class dynamic_json :public json_value {
 public:
 	dynamic_json() {
@@ -1097,9 +1011,10 @@ private:
 
 		if (*js.begin == parser::json_key_symbol::str) {
 			push_head(type_flag_t::pre_t);
-			parse_string(js);
+			if (!parse_string(js))
+				return false;
 			parser::skip_space(js);
-			if (*js.begin != '\0') {
+			if (parser::get_next(js) != '\0') {
 				ERROR_RETURT(js);
 			}
 			return true;
@@ -1245,9 +1160,10 @@ private:
 		}
 		else {
 			push_head(type_flag_t::pre_t);
-			parse_number(js);
+			if (!parse_number(js))
+				return false;
 			parser::skip_space(js);
-			if (*js.begin != '\0') {
+			if (parser::get_next(js) != '\0') {
 				ERROR_RETURT(js);
 			}
 			return true;

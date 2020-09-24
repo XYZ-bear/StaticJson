@@ -17,6 +17,7 @@ using namespace std;
 #define Json(name)\
 class name :public json_base<name>
 
+//static metadata collector
 #define N(name)																														\
 name;																																\
 private:																															\
@@ -53,7 +54,9 @@ return true;												\
 
 #define R(...) #__VA_ARGS__
 
+#define ERROR_RETURT(opt) cout << "[error]:" << opt.begin;assert(!js.is_option(ASSERT));cout<<endl;return false;
 
+//! singleton template
 template<class T>
 class static_instance {
 public:
@@ -66,6 +69,7 @@ private:
 template<class T>
 T static_instance<T>::ins;
 
+//! This is a special string as the unordered map key
 //This is a special string as the unordered map key, which is no copy, just a pointer to the string beginning. 
 //If use std::string as the key, which will new char[] on the heap, copy some chars and release, basically no need
 //when initializing the fields the key come from const char* and end with '\0'
@@ -80,6 +84,7 @@ public:
 };
 
 namespace std {
+	//! SGI STL way to generate hashcode
 	template<>
 	struct hash<no_copy_string> {
 	public:
@@ -106,6 +111,7 @@ namespace std {
 
 	};
 
+	//! check xxx\0 == xxx", the map key end with \0, the json key str end with "
 	template<>
 	struct equal_to<no_copy_string> {
 	public:
@@ -132,15 +138,16 @@ namespace std {
 	};
 }
 
-//on Windows the class member function is 8bit
-//on Linux it is 16bit
-//count_func_pointer_len to count the size
+//! on Windows the class member function is 8bit
+// on Linux it is 16bit
+// count_func_pointer_len to count the size
 struct data_impl_t {
 	void count_func_pointer_len() {}
 	char unserialize[sizeof(&data_impl_t::count_func_pointer_len)];
 	char serialize[sizeof(&data_impl_t::count_func_pointer_len)];
 };
 
+//! Field collector
 template<class T>
 class field_collector {
 public:
@@ -157,6 +164,7 @@ public:
 #define UNESCAPE (char)0x2
 #define UNESCAPE_UNICODE (char)0x4
 
+//! json stream with option
 struct json_stream {
 	const char* begin;
 	const char* end;
@@ -171,6 +179,7 @@ struct json_stream {
 	}
 };
 
+//! json parser
 class parser {
 public:
 	enum json_key_symbol
@@ -409,9 +418,6 @@ public:
 		else if (de < 0) {
 			res += "0.";
 			res.append(-1 * de, '0');
-			//while (0 != de++) {
-			//	res += "0";
-			//}
 			res += re;
 		}
 #else
@@ -509,10 +515,7 @@ public:
 	template<class V>
 	inline static bool unserialize(V *data, json_stream &js) {
 		if (*js.begin == json_key_symbol::object_begin) {
-			if (js.end)
-				js.begin += data->unserialize(js.begin, js.end - js.begin, js.option);
-			else
-				js.begin += data->unserialize(js.begin, js.option);
+			return data->unserialize(js);;
 		}
 		else {
 			check_skip(js);
@@ -582,7 +585,6 @@ public:
 			str += (static_cast<char>(0x80 | (codepoint & 0x3F)));
 		}
 		else {
-			//RAPIDJSON_ASSERT(codepoint <= 0x10FFFF);
 			str += (static_cast<char>(0xF0 | ((codepoint >> 18) & 0xFF)));
 			str += (static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
 			str += (static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
@@ -644,7 +646,7 @@ public:
 						return false;
 				}
 			}
-			else if (ch < 0x20) {
+			else if (ch >= 0 && ch < 0x20) {
 				return false;
 			}
 		}
@@ -652,7 +654,7 @@ public:
 	}
 };
 
-
+//! Recursion-based parser
 template<class T>
 class json_base {
 
@@ -682,7 +684,6 @@ public:
 		return false;
 	}
 
-
 	bool parse_object(json_stream &js) {
 		// only the key_value should be parsed in {}
 		while (char ch = parser::get_cur_and_next(js)) {
@@ -707,21 +708,20 @@ public:
 		return false;
 	}
 public:
+	bool unserialize(json_stream &js) {
+		return parse_object(js);
+	}
 	// if *json end with '\0',don't need the size arg
-	size_t unserialize(const char* json, size_t size, char option = 0) {
+	bool unserialize(const char* json, size_t size, char option = 0) {
 		const char* begin = json;
 		json_stream js{ begin,begin + size,option };
-		parse_object(js);
-
-		return js.begin - json;
+		return parse_object(js);
 	}
 
-	size_t unserialize(const char* json, char option = 0) {
+	bool unserialize(const char* json, char option = 0) {
 		const char* begin = json;
 		json_stream js{ begin,nullptr,option };
-		parse_object(js);
-
-		return js.begin - json;
+		return parse_object(js);
 	}
 
 	void serialize(string &res) {
