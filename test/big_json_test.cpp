@@ -5,6 +5,7 @@
 #include<thread>
 
 void get_file(string path, string &res) {
+	res.resize(0);
 	ifstream myfile(path);
 	string temp;
 	while (getline(myfile, temp)) {
@@ -20,7 +21,7 @@ public:
 };
 
 TEST_CASE("twitter test") {
-	PERF(canada_test,10000000) {
+	PERF(canada_test,1) {
 		D d;
 		d.unserialize(R({ "d":1.7976931348623157 }));
 	}
@@ -38,14 +39,14 @@ TEST_CASE("multi thread test") {
 	get_file(".//data//twitter.json", res);
 
 	thread t1([&res]()->void {
-		PERF(t1, 100) {
+		PERF(t1, 10) {
 			Twitter twitter;
 			CHECK(twitter.unserialize(res.data()));
 		}
 	});
 
 	thread t2([&res]()->void {
-		PERF(t2, 100) {
+		PERF(t2, 10) {
 			Twitter twitter;
 			CHECK(twitter.unserialize(res.data()));
 		}

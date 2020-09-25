@@ -964,18 +964,16 @@ private:
 
 	bool parse_number(json_stream &js) {
 		if (char ch = *js.begin) {
-			if (ch == 'f') {
-				js.begin += 5;
-				push_num<bool>() = false;
-				set_flag(type_flag_t::boo_t);
-			}
-			else if (ch == 't') {
-				js.begin += 4;
-				push_num<bool>() = true;
+			if (ch == 'f' || ch == 't') {
+				if (!parser::parse_bool(push_num<bool>(), js)) {
+					ERROR_RETURT(js);
+				}
 				set_flag(type_flag_t::boo_t);
 			}
 			else if (ch == 'n') {
-				js.begin += 4;
+				if (!parser::is_null(js)) {
+					ERROR_RETURT(js);
+				}
 				set_flag(type_flag_t::nul_t);
 			}
 			else {
@@ -1014,7 +1012,7 @@ private:
 			if (!parse_string(js))
 				return false;
 			parser::skip_space(js);
-			if (parser::get_next(js) != '\0') {
+			if (parser::get_cur_and_next(js) != '\0') {
 				ERROR_RETURT(js);
 			}
 			return true;
@@ -1163,7 +1161,7 @@ private:
 			if (!parse_number(js))
 				return false;
 			parser::skip_space(js);
-			if (parser::get_next(js) != '\0') {
+			if (parser::get_cur_and_next(js) != '\0') {
 				ERROR_RETURT(js);
 			}
 			return true;
@@ -1266,7 +1264,7 @@ public:
 		\param option ASSERT|UNESCAPE|UNESCAPE_UNICODE, when there are multiple options, you can combat them by OR operation
 		\return the lenght of
 	*/
-	size_t unserialize(string &js, char option = 0) {
+	size_t unserialize(const string &js, char option = 0) {
 		return unserialize(js.data(), js.size(), option);
 	}
 };

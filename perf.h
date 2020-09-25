@@ -5,6 +5,8 @@
 #include <time.h>
 #include <string>
 #include <iostream>
+#include <iomanip>
+#include <mutex>
 using namespace std;
 
 class perf_test {
@@ -18,12 +20,17 @@ public:
 		start = clock();
 		times = t;
 		count = 0;
+		cout.setf(ios::left);
 	}
 	bool check_end() {
 		if (count++ < times)
 			return true;
 		else {
-			cout <<"[perftest]" << name << ":" << clock() - start << "ms" << endl;
+			int cost = clock() - start;
+			static mutex mtx;
+			mtx.lock();
+			cout <<"[perftest]"  << setw(40) << name << ":" << cost << "ms" << endl;
+			mtx.unlock();
 			return false;
 		}
 	}

@@ -196,6 +196,22 @@ public:
 		space = ' '
 	};
 public:
+	static bool is_null(json_stream &js) {
+		char n[5] = "null";
+		char index = 0;
+		while (char ch = *js.begin) {
+			if (index >= 4)
+				break;
+			else if (index < 4 && ch != n[index]) {
+				return false;
+			}
+			index++;
+			get_next(js);
+		}
+		if (index != 4)
+			return false;
+		return true;
+	}
 	static bool parse_bool(bool &val, json_stream &js) {
 		char t[5] = "true";
 		char f[6] = "false";
@@ -209,8 +225,10 @@ public:
 					return false;
 				}
 				index++;
-				ch = get_next(js);
+				get_next(js);
 			}
+			if (index != 4)
+				return false;
 			val = true;
 			return true;
 		}
@@ -225,6 +243,8 @@ public:
 				index++;
 				ch = get_next(js);
 			}
+			if (index != 5)
+				return false;
 			val = false;
 			return true;
 		}
@@ -247,12 +267,18 @@ public:
 		return (ch == ' ' || (ch >= 0x00 && ch <= 0x1F) || ch == 0x7F);
 	}
 
+	//this is not a strict api to check double,-1 -> double, 1 -> int, 0 -> error
 	static char inline is_double(json_stream &js) {
 		json_stream t = js;
 		if (*js.begin == '0') {
 			if (char ch = get_next(t)) {
-				if (ch == '.')
-					return -1;
+				if (ch == '.') {
+					ch = get_next(t);
+					if (ch >= '0'&&ch <= '9')
+						return -1;
+					else
+						return 0;
+				}
 				else if (ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}')
 					return 1;
 				else
@@ -261,10 +287,20 @@ public:
 		}
 
 		while (char ch = get_cur_and_next(t)) {
-			if (ch == '.' || ch == 'e' || ch == 'E')
+			if (ch == '.') {
+				ch = get_cur_and_next(t);
+				if (ch >= '0'&&ch <= '9')
+					return -1;
+				else
+					return 0;
+			}
+			else if( ch == 'e' || ch == 'E'){
 				return -1;
-			else if ( ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}')
+			}
+			else if (ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}')
 				return 1;
+			else if (ch == '+')
+				return 0;
 		}
 		return 1;
 	}

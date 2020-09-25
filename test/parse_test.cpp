@@ -26,7 +26,7 @@ TEST_CASE("compatibility test") {
 	Test6 t;
 	
 	//if a value not match the static type,the next value should be paresd.
-	t.unserialize(R({ "f" : {},"g" : 123));
+	t.unserialize(R({ "f" : {},"g" : 123 }));
 	CHECK(t.f.size() == 0);
 	CHECK(t.g == 123);
 
@@ -213,6 +213,8 @@ TEST_CASE("char test") {
 Json(Num) {
 public:
 	int64_t N(n);
+	uint64_t N(un);
+	double N(d);
 };
 
 TEST_CASE("Scientific counting test") {
@@ -244,4 +246,15 @@ TEST_CASE("Scientific counting test") {
 	n.n = 0;
 	n.unserialize(R({ "n":null }));
 	CHECK(n.n == 0);
+
+	n.n = 0;
+	n.unserialize(R({ "n":-9223372036854775808 }));
+	CHECK(n.n == -9223372036854775807 - 1);
+	// (2**63)-1
+	n.n = 0;
+	n.unserialize(R({ "n":9223372036854775807 }));
+	CHECK(n.n == 9223372036854775807);
+	// (2**64)-1
+	n.unserialize(R({ "un":18446744073709551615 }));
+	CHECK(n.un == 18446744073709551615u);
 }
