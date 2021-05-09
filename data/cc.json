@@ -1,0 +1,276 @@
+{
+  "柱箱": {
+    "is_show": false,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": false
+    },
+    "升温速率": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "进样口": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "SPL前": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "柱压力": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "柱流量": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "分流": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "SPL后": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "柱压力": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "柱流量": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "分流": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "PIP前": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "柱压力": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "柱流量": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "PIP后": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "柱压力": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "柱流量": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "FID1": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "氢气": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "空气": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "尾吹": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "点火状态": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "FID2": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "氢气": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "空气": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "尾吹": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "点火状态": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "TCD1": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "电流": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "尾吹": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "TCD2": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "电流": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "尾吹": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  },
+  "FPD": {
+    "is_show": true,
+    "is_title": true,
+    "温度": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "氢气": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "空气": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "尾吹": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "点火状态": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    },
+    "高压状态": {
+      "xy": [ 10, 2 ],
+      "value": "",
+      "unit": "",
+      "is_show": true
+    }
+  }
+}
