@@ -1,10 +1,16 @@
 #pragma once
-
 #include "static_json.h"
 #include <vector>
 #include <functional>
 #include <map>
 
+#ifdef unix
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/shm.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#endif
 /*Linear chain storage structure
 Linear: Physical Structure,line memory space,like vector,
 Chain: Logical Structure, the nodes linked by logical
@@ -65,13 +71,13 @@ template <class T>
 class json_iterator
 {
 public:
-	json_iterator(T * pp, bool o, int off) :p(pp), end(o) {
+	json_iterator(T* pp, bool o, int off) :p(pp), end(o) {
 		begin = off;
 	}
 
-	json_iterator(const json_iterator<T> &i) :p(i.p) {}
+	json_iterator(const json_iterator<T>& i) :p(i.p) {}
 
-	json_iterator<T> & operator = (const json_iterator<T>& i) { p = i.p; return *this; }
+	json_iterator<T>& operator = (const json_iterator<T>& i) { p = i.p; return *this; }
 
 	bool operator != (const json_iterator<T>& i) {
 		if (end == i.end)
@@ -79,29 +85,220 @@ public:
 		return true;
 	}
 
-	T & operator *() { return *p; }
+	T& operator *() { return *p; }
 
-	T & operator ++() {
+	T& operator ++() {
 		end = p->next(&iter_stack, begin);
 		return *p;
 	}
 
-	T & next_brother() {
+	T& next_brother() {
 		end = p->next_brother(begin);
 		return *p;
 	}
 private:
-	T * p;
+	T* p;
 	json_stack iter_stack;
 	bool end;
 	int begin;
 };
 
+static vector<size_t> prime_list = { 53 , 97, 193, 389, 769, 1543, 3079, 6151, 12289, 24593, 49157, 98317, 196613, 393241, 786433, 1572869, 3145739, 6291469, 12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741 };
+
+#ifdef unix
+struct hint_proxy
+{
+	int8_t type;
+	const void* val1;
+	const void* val2;
+};
+
+template <typename T>
+class shm_allocator : public std::allocator<T>
+{
+public:
+	typedef size_t   size_type;
+	typedef typename std::allocator<T>::pointer              pointer;
+	typedef typename std::allocator<T>::value_type           value_type;
+	typedef typename std::allocator<T>::const_pointer        const_pointer;
+	typedef typename std::allocator<T>::reference            reference;
+	typedef typename std::allocator<T>::const_reference      const_reference;
+
+	pointer allocate(size_type _Count, const void* _Hint = NULL) {
+		if (init_ptr) {
+			auto t = init_ptr;
+			init_ptr = nullptr;
+			return t;
+		}
+		*count = _Count;
+		shmctl(*shmid, IPC_RMID, 0);
+		*shmid = shmget(IPC_PRIVATE, (size_t)(_Count * sizeof(T)), 0666 | IPC_CREAT);
+		T* tmp = (T*)shmat(*shmid, 0, 0);
+		return (pointer)tmp;
+	}
+
+	void deallocate(pointer _Ptr, size_type _Count) {
+	}
+
+	void release() {
+		shmctl(*shmid, IPC_RMID, 0);
+	}
+
+	template<class _Other>
+	struct rebind {
+		// convert this type to allocator<_Other>  
+		typedef shm_allocator<_Other> other;
+	};
+
+	shm_allocator() throw() {
+		*shmid = -1;
+	}
+
+	shm_allocator(size_t* shmid, size_t* count) throw() {
+		this->shmid = shmid;
+		this->count = count;
+		if (*shmid == 0)
+			*shmid = -1;
+		else {
+			init_ptr = (pointer)shmat(*shmid, 0, 0);
+		}
+	}
+
+	shm_allocator(const shm_allocator& __a) throw()
+		: std::allocator<T>(__a) {
+		this->shmid = __a.shmid;
+		this->init_ptr = __a.init_ptr;
+		this->count = __a.count;
+	}
+
+	template<typename _Tp1>
+	shm_allocator(const shm_allocator<_Tp1>& __a) throw() {
+		this->shmid = __a.shmid;
+		this->init_ptr = __a.init_ptr;
+		this->count = __a.count;
+	}
+
+	size_t get_shmid() {
+		return *shmid;
+	}
+
+	~shm_allocator() throw() {}
+
+	size_t* shmid = nullptr;
+	size_t* count = nullptr;
+	pointer init_ptr = nullptr;
+};
+#endif
+
+template <typename T>
+class std_allocator : public std::allocator<T>
+{
+public:
+	typedef size_t   size_type;
+	typedef typename std::allocator<T>::pointer              pointer;
+	typedef typename std::allocator<T>::value_type           value_type;
+	typedef typename std::allocator<T>::const_pointer        const_pointer;
+	typedef typename std::allocator<T>::reference            reference;
+	typedef typename std::allocator<T>::const_reference      const_reference;
+
+	template<class _Other>
+	struct rebind {
+		typedef std_allocator<_Other> other;
+	};
+
+	std_allocator() throw() {
+	}
+
+	std_allocator(size_t* shmid, size_t* count) throw() : std::allocator<T>() {
+	}
+
+	void release() {
+	}
+
+	std_allocator(const std_allocator& __a) throw()
+		: std::allocator<T>(__a) {
+	}
+
+	template<typename _Tp1>
+	std_allocator(const std_allocator<_Tp1>& __a) throw() {
+	}
+
+	size_t get_shmid() {
+		return 0;
+	}
+};
+
+class mmp_op {
+public:
+	static void* allocate(const char* key, size_t size) {
+#ifdef unix
+		int pack_id = shm_open(key, O_CREAT | O_RDWR, 0666);
+		ftruncate(pack_id, size);
+		return mmap(0, size, PROT_WRITE, MAP_SHARED, pack_id, 0);
+#else
+		return nullptr;
+#endif
+	}
+
+	static void release(const char* key) {
+#ifdef unix
+		shm_unlink(key);
+#endif
+	}
+
+};
+
+template<class TYPE>
+struct template_param
+{
+	static TYPE b;
+};
+
+#pragma pack(push,1)
+struct hash_node
+{
+	uint32_t next = 0;
+	uint32_t parent = 0;
+	uint32_t value_off = 0;
+};
+
+struct table_node
+{
+	hash_node hn;
+	uint32_t end = 0;
+};
+
+struct shm_pack {
+	size_t _data_shmid = -1;
+	size_t _data_count = 0;
+	size_t _hash_shmid = -1;
+	size_t _hash_count = 0;;
+	size_t _link_shmid = -1;
+	size_t _link_count = 0;;
+	size_t _other_shmid = -1;
+	size_t _other_count = 0;;
+};
+#pragma pack(pop)
+
+typedef std_allocator<char> d_alloc_t;
+typedef std_allocator<table_node> h_alloc_t;
+typedef std_allocator<hash_node> l_alloc_t;
+#ifdef unix
+typedef shm_allocator<char> shm_data_alloc_t;
+typedef shm_allocator<table_node> shm_hash_table_alloc_t;
+typedef shm_allocator<hash_node> shm_link_table_alloc_t;
+#else
+typedef std_allocator<char> shm_data_alloc_t;
+typedef std_allocator<table_node> shm_hash_table_alloc_t;
+typedef std_allocator<hash_node> shm_link_table_alloc_t;
+#endif
+
 //! an efficient array-linked structure
+template<class DATA_ALLOC = d_alloc_t, class HASH_TABLE_ALLOC = h_alloc_t, class LINK_TABLE_ALLOC = l_alloc_t>
 struct json_value {
 public:
 	//! inorder to support old compiler, separeate with type_flag_t
-	typedef char flag_t; 
+	typedef char flag_t;
 
 	//! point to the next value
 	typedef uint32_t next_t;
@@ -115,6 +312,12 @@ public:
 	//! when the key length <= 255, then store the key length
 	//  if key length > 255, then store the length as 256, use strlen to get the real length
 	typedef uint8_t key_t;
+
+	typedef std::basic_string<char, std::char_traits<char>, DATA_ALLOC> data_t;
+
+	typedef std::vector<table_node, HASH_TABLE_ALLOC> hash_table_t;
+
+	typedef std::vector<hash_node, LINK_TABLE_ALLOC> link_table_t;
 
 	//! all the json token type
 	enum type_flag_t
@@ -134,7 +337,7 @@ public:
 
 	//! help you to push the childs into a vector
 	struct vector_helper {
-		json_value *root;
+		json_value* root;
 		vector<int> vec;
 		json_value& operator [] (int index) {
 			if (root && index < vec.size())
@@ -145,7 +348,7 @@ public:
 
 	//! help you to push the childs into a map with key
 	struct map_helper {
-		json_value *root;
+		json_value* root;
 		unordered_map<no_copy_string, length_t> mapp;
 		json_value& operator [] (const char* key) {
 			if (root)
@@ -157,7 +360,7 @@ public:
 protected:
 #pragma pack(push,1)
 	//! Head interpreter
-	struct head_t{
+	struct head_t {
 		//! type
 		flag_t t;
 
@@ -195,7 +398,7 @@ protected:
 		}
 
 		char* get_val() {
-			if(kl < 255)
+			if (kl < 255)
 				return kl == 0 ? (char*)this + head_size() + kl : (char*)this + head_size() + kl + 1;
 			return (char*)this + head_size() + strlen(get_key()) + 1;
 		}
@@ -210,7 +413,7 @@ protected:
 		}
 
 		template<class N>
-		N get_num() {
+		N get_num(template_param<N> j) {
 			if (t == type_flag_t::num_t || type_flag_t::boo_t)
 				return *(N*)(get_val());
 			return 0;
@@ -234,12 +437,109 @@ protected:
 #pragma pack(pop)
 public:
 	json_value() {
-		data = new string();
+		data = new data_t();
+		update_head(0);
+		od = data->data();
+
+		ph = 0;
+		last_push = 0;
+
+		hash_table = new hash_table_t();
+		link_table = new link_table_t();
+		other_table = new link_table_t(1);
+		mode_index = &(*other_table)[0].next;
+		count = &(*other_table)[0].parent;
+		hash_table->resize(prime_list[*mode_index]);
+	}
+
+	json_value(const char* key) {
+#ifdef unix
+		shm_pack* pack = (shm_pack*)mmp_op::allocate(key, sizeof(shm_pack));
+		if (pack->_data_shmid) {
+			init_from_pack(pack);
+			return;
+		}
+#else
+		shm_pack packt;
+		shm_pack* pack = &packt;
+#endif // unix
+
+
+
+		data = new data_t(DATA_ALLOC(&pack->_data_shmid, &pack->_data_count));
+		update_head(0);
+		od = data->data();
+
+		ph = 0;
+		last_push = 0;
+
+		hash_table = new hash_table_t(HASH_TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
+		link_table = new link_table_t(LINK_TABLE_ALLOC(&pack->_link_shmid, &pack->_link_count));
+		other_table = new link_table_t(LINK_TABLE_ALLOC(&pack->_other_shmid, &pack->_other_count));
+		other_table->resize(1);
+		mode_index = &(*other_table)[0].next;
+		count = &(*other_table)[0].parent;
+		hash_table->resize(prime_list[*mode_index]);
+	}
+
+	void init_from_pack(shm_pack* pack) {
+		data = new data_t(DATA_ALLOC(&pack->_data_shmid, &pack->_data_count));
+		data->reserve(pack->_data_count);
+		update_head(0);
+		od = data->data();
+
+		ph = 0;
+		last_push = 0;
+		hash_table = new hash_table_t(HASH_TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
+		link_table = new link_table_t(LINK_TABLE_ALLOC(&pack->_link_shmid, &pack->_link_count));
+		other_table = new link_table_t(LINK_TABLE_ALLOC(&pack->_other_shmid, &pack->_other_count));
+		hash_table->reserve(pack->_hash_count);
+		link_table->reserve(pack->_link_count);
+		other_table->reserve(pack->_other_count);
+		mode_index = &(*other_table)[0].next;
+		count = &(*other_table)[0].parent;
+	}
+
+	shm_pack get_shm_pack() {
+		return { data->get_allocator().get_shmid(), data->size(),
+				 hash_table->get_allocator().get_shmid(), hash_table->size(),
+				 link_table->get_allocator().get_shmid(), link_table->size(),
+				 other_table->get_allocator().get_shmid(), other_table->size()
+		};
+	}
+
+	~json_value() {
+	}
+
+	inline data_t& gdata() {
+		return *data;
+	}
+
+	inline size_t gdata1() {
+		return hash_table->size() * sizeof(table_node) + link_table->size() * sizeof(hash_node);
+	}
+
+	void release() {
+		delete data;
+		delete hash_table;
+		delete link_table;
+		delete other_table;
+	}
+
+	void release_shm(const char* key) {
+		if (data && hash_table && hash_table) {
+			mmp_op::release(key);
+			data->get_allocator().release();
+			hash_table->get_allocator().release();
+			link_table->get_allocator().release();
+			other_table->get_allocator().release();
+		}
 	}
 
 	//! the begin json_iteratorator
 	json_iterator<json_value> begin() {
-		if(!h)
+		check_update_head();
+		if (!h)
 			init();
 		length_t off = get_off();
 		if (h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) {
@@ -250,30 +550,54 @@ public:
 
 	//! the end json_iteratorator
 	json_iterator<json_value> end() {
+		check_update_head();
 		return json_iterator<json_value>(this, true, 0);
 	}
 
 	//! get object value
-	json_value& operator [] (const char* key) {
+	json_value operator [] (const char* key) {
+		check_update_head();
 		if (key && h) {
 			// set this head as obj_t
 			if (h->t == type_flag_t::pre_t) {
+				ph = get_off();
 				h->t = type_flag_t::obj_t;
 				h->cl = (length_t)data->size();
 				push_head(type_flag_t::pre_t, key, (length_t)strlen(key));
 			}
 			else {
 				// dont find the head -> add this key
-				head_t *th = get_key_head(key);
-				if (th == nullptr) {
+				if (hash_node* node = find_node(key)) {
+					head_t* th = (head_t*)(data->data() + node->value_off);
+					if (th->t == type_flag_t::obj_t)
+						return json_value(*this, th, node->value_off);
+					else
+						return json_value(*this, th, ph);
+				}
+
+				//bool is_find = false;
+				//head_t *th = get_key_head(key, is_find);
+				//if (is_find) {
+				//	return json_value(*this, th, length_t((const char*)th - data->data()));
+				//}
+				// 
+				//head_t* th = get_end_head();
+				//if (!th) {
+				//	push_head(type_flag_t::obj_t);
+				//	h->cl = (length_t)data->size();
+				//}
+				head_t* th = nullptr;
+				if (last_push == 0) {
 					push_head(type_flag_t::obj_t);
 					h->cl = (length_t)data->size();
-					push_head(type_flag_t::pre_t, key, (length_t)strlen(key));
 				}
-				else if (h != th) {
-					th->n = (next_t)data->size();
-					push_head(type_flag_t::pre_t, key, (length_t)strlen(key));
+				else {
+					th = (head_t*)(data->data() + last_push);
+					while (th->t == type_flag_t::del_t) {
+						th = (head_t*)(data->data() + th->n);
+					}
 				}
+				return json_value(*this, th, key);
 			}
 		}
 		return *this;
@@ -281,6 +605,7 @@ public:
 
 	//! get arrray value
 	json_value& operator [] (int index) {
+		check_update_head();
 		if (index >= 0) {
 			// set this head as obj_t
 			if (h->t == type_flag_t::pre_t) {
@@ -290,7 +615,7 @@ public:
 			}
 			else {
 				// dont find the head -> add this key
-				head_t *th = get_index_head(index);
+				head_t* th = get_index_head(index);
 				if (th == nullptr) {
 					push_head(type_flag_t::arr_t);
 					h->cl = (length_t)data->size();
@@ -306,14 +631,15 @@ public:
 	}
 
 	//! get the next value head
-	/*! 
+	/*!
 		\return	If this is the last value return true else return false
 	*/
 	bool next(json_stack* iter_stack, length_t begin = 0) {
+		check_update_head();
 		while (h->t == type_flag_t::del_t)
 			h = (head_t*)(data->data() + h->n);
-		if (h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) {
-			iter_stack->push({ true, (int)((const char*)h - data->data())});
+		if ((h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) && h->cl) {
+			iter_stack->push({ true, (int)((const char*)h - data->data()) });
 			h = (head_t*)(data->data() + h->cl);
 			return false;
 		}
@@ -344,6 +670,7 @@ public:
 		\return	If this is the last value return true else return false
 	*/
 	bool next_brother(length_t begin = 0) {
+		check_update_head();
 		while (h->t == type_flag_t::del_t)
 			h = (head_t*)(data->data() + h->n);
 		if (h->n) {
@@ -353,20 +680,21 @@ public:
 		h = (head_t*)(data->data() + begin);
 		return true;
 	}
-	
+
 	//! assign a number
 	template<class N>
 	void operator = (N num) {
+		check_update_head();
 		static_assert(is_arithmetic<N>::value != 0, "Must be arithmetic type");
 		if (h) {
 			if (h->t == type_flag_t::num_t)
 				h->set_num(num);
 			else if (h->t == type_flag_t::pre_t) {
-				push_num<N>() = num;
+				push_num(template_param<N>()) = num;
 			}
 			else if (h->t == type_flag_t::emp_t) {
 				push_head(type_flag_t::num_t);
-				push_num<N>() = num;
+				push_num(template_param<N>()) = num;
 			}
 			else {
 				h->t = type_flag_t::del_t;
@@ -374,24 +702,25 @@ public:
 				h->n = (next_t)data->size();
 				push_head_from(type_flag_t::num_t, h);
 				h->n = pre_n;
-				push_num<N>() = num;
+				push_num(template_param<N>()) = num;
 			}
 		}
 	}
 
 	//! assign bool
 	void operator = (bool num) {
+		check_update_head();
 		if (h) {
 			if (h->t == type_flag_t::boo_t)
 				h->set_num(num);
 			else if (h->t == type_flag_t::pre_t) {
-				push_num<bool>() = num;
+				push_num(template_param<bool>()) = num;
 				h->cl = 0;
 				h->t = type_flag_t::boo_t;
 			}
 			else if (h->t == type_flag_t::emp_t) {
 				push_head(type_flag_t::boo_t);
-				push_num<bool>() = num;
+				push_num(template_param<bool>()) = num;
 			}
 			else {
 				h->t = type_flag_t::del_t;
@@ -399,13 +728,14 @@ public:
 				h->n = (next_t)data->size();
 				push_head_from(type_flag_t::boo_t, h);
 				h->n = pre_n;
-				push_num<bool>() = num;
+				push_num(template_param<bool>()) = num;
 			}
 		}
 	}
 
 	//! assign null
 	void operator = (nullptr_t null) {
+		check_update_head();
 		if (h) {
 			if (h->t == type_flag_t::pre_t || h->t == type_flag_t::emp_t) {
 				h->t = type_flag_t::nul_t;
@@ -420,6 +750,7 @@ public:
 
 	//! assign a string
 	void operator = (const char* str) {
+		check_update_head();
 		if (h && str) {
 			length_t len = (length_t)strlen(str);
 			if (h->t == type_flag_t::str_t) {
@@ -469,12 +800,14 @@ public:
 	template<class Num>
 	operator Num()
 	{
+		check_update_head();
 		static_assert(is_arithmetic<Num>::value != 0, "Must be arithmetic type");
-		return h->get_num<Num>();
+		return h->get_num(template_param<Num>());
 	}
 
 	//! you'd better do not use this stupied way to get string value
 	operator string() {
+		check_update_head();
 		string res;
 		h->get_string(res);
 		return res;
@@ -485,15 +818,17 @@ public:
 			   this way: const char* v = value;
 		\return	implicit convert the json_value to const char*
 	*/
-	operator const char*() {
+	operator const char* () {
+		check_update_head();
 		return h->get_string();
 	}
 
 	//! compare with string
-	/*! 
+	/*!
 		\tparam N it could be uint8_t,int8_t,uint16_t,int16_t,uint32_t,int32_t,float,double all the number length < 8byte
 	*/
 	bool operator == (const char* str) {
+		check_update_head();
 		if (h->t == type_flag_t::str_t)
 			return h->equal(str);
 		else
@@ -501,20 +836,22 @@ public:
 	}
 
 	//! compare with number
-	/*! 
-		\tparam N it could be uint8_t,int8_t,uint16_t,int16_t,uint32_t,int32_t,float,double all the number length < 8byte 
+	/*!
+		\tparam N it could be uint8_t,int8_t,uint16_t,int16_t,uint32_t,int32_t,float,double all the number length < 8byte
 	*/
 	template<class N>
 	bool operator == (N num) {
+		check_update_head();
 		static_assert(is_arithmetic<N>::value != 0, "Must be arithmetic type");
 		if (h->t == type_flag_t::num_t || h->t == type_flag_t::boo_t)
-			return h->get_num<N>() == num;
+			return h->get_num(template_param<N>()) == num;
 		else
 			return false;
 	}
 
 	//! compare with null
 	bool operator == (nullptr_t null) {
+		check_update_head();
 		if (h->t == type_flag_t::nul_t)
 			return true;
 		else
@@ -523,9 +860,10 @@ public:
 
 	//! erase a value
 	/*! \brief	For efficiency, just set the value flag as del_t, so there the memory move will not happen
-				when insert a new value the memery may be use again. 
+				when insert a new value the memery may be use again.
 	*/
 	void erase() {
+		check_update_head();
 		if (h) {
 			h->t = type_flag_t::del_t;
 		}
@@ -534,38 +872,58 @@ public:
 	//! find a key
 	//! \return exist -> true or -> false
 	bool find(const char* key) {
+		check_update_head();
 		return find_key(key);
 	}
 
+	//! find a key
+	//! \return exist -> true or -> false
+	const json_value& findv(const char* key) {
+		check_update_head();
+		if (hash_node* node = find_node(key)) {
+			head_t* th = (head_t*)(data->data() + node->value_off);
+			return json_value(*this, th, node->value_off);
+		}
+		return json_value();
+	}
+
 	bool is_object() {
+		check_update_head();
 		return h->t == type_flag_t::obj_t;
 	}
 
 	bool is_array() {
+		check_update_head();
 		return h->t == type_flag_t::arr_t;
 	}
 
 	bool is_string() {
+		check_update_head();
 		return h->t == type_flag_t::str_t;
 	}
 
 	bool is_number() {
+		check_update_head();
 		return h->t == type_flag_t::num_t;
 	}
 
 	bool is_bool() {
+		check_update_head();
 		return h->t == type_flag_t::boo_t;
 	}
 
 	bool is_null() {
+		check_update_head();
 		return h->t == type_flag_t::nul_t;
 	}
 
 	bool is_number_int() {
+		check_update_head();
 		return h->cl == type_flag_t::num_int_t;
 	}
 
 	bool is_number_double() {
+		check_update_head();
 		return h->cl == type_flag_t::num_double_t;
 	}
 
@@ -575,6 +933,7 @@ public:
 				string -> length(string)
 	*/
 	size_t size() {
+		check_update_head();
 		if (h->t == type_flag_t::arr_t || h->t == type_flag_t::obj_t)
 			return count_size();
 		else if (h->t == type_flag_t::num_t) {
@@ -588,6 +947,7 @@ public:
 				in {} -> return the key
 	*/
 	const char* key() {
+		check_update_head();
 		if (h->kl)
 			return h->get_key();
 		else
@@ -600,11 +960,12 @@ public:
 		\param vh a vector_helper reference
 	*/
 	void build_vector_helper(vector_helper& vh) {
+		check_update_head();
 		if (h && h->t == type_flag_t::arr_t) {
 			vh.root = this;
 			const char* begin = data->data();
 			//// point to the child begin
-			head_t *th = (head_t*)(begin + h->cl);
+			head_t* th = (head_t*)(begin + h->cl);
 			vh.vec.push_back(h->cl);
 			while (th) {
 				// if this node was deleted -> jump
@@ -622,15 +983,16 @@ public:
 	}
 
 	//! build all the same level data to a map
-	/*! \brief if you need to find a value by key in high frequency, this will help you 
+	/*! \brief if you need to find a value by key in high frequency, this will help you
 		\param mh a map_helper reference
 	*/
 	void build_map_helper(map_helper& mh) {
+		check_update_head();
 		if (h && h->t == type_flag_t::obj_t) {
 			mh.root = this;
 			const char* begin = data->data();
 			//// point to the child begin
-			head_t *th = (head_t*)(begin + h->cl);
+			head_t* th = (head_t*)(begin + h->cl);
 			while (th) {
 				// if this node was deleted -> jump
 				if (th->t != type_flag_t::del_t) {
@@ -646,11 +1008,12 @@ public:
 		}
 	}
 
-	void serialize(string &str) {
+	void serialize(string& str) {
+		check_update_head();
 		str.resize(0);
 		str.reserve(data->size());
 		json_stack stack;
-		head_t *th = h;
+		head_t* th = h;
 
 		while (th) {
 			if (th->t != type_flag_t::del_t) {
@@ -689,16 +1052,16 @@ public:
 						th = (head_t*)(data->data() + th->n);
 						str += "[],";
 					}
-					
+
 				}
 
 				if (th->t == type_flag_t::num_t) {
 					if (th->cl == type_flag_t::num_int_t) {
-						int64_t i64 = th->get_num<int64_t>();
+						int64_t i64 = th->get_num(template_param<int64_t>());
 						parser::serialize(&i64, str);
 					}
 					else {
-						double d64 = th->get_num < double > ();
+						double d64 = th->get_num(template_param<double>());
 						parser::serialize(&d64, str);
 					}
 					str += ',';
@@ -713,7 +1076,7 @@ public:
 					str += ',';
 				}
 				else if (th->t == type_flag_t::boo_t) {
-					if (th->get_num<bool>())
+					if (th->get_num(template_param<bool>()))
 						str += "true";
 					else
 						str += "false";
@@ -742,21 +1105,179 @@ public:
 		init();
 	}
 
-	json_value(json_value & o) {
+	json_value(const json_value& o) {
 		data = o.data;
 		h = o.h;
+		od = data->data();
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+		count = o.count;
+		mode_index = o.mode_index;
+		last_push = o.last_push;
+		ph = o.ph;
 	}
+
+	json_value(const json_value& o, head_t* h, size_t ph) {
+		data = o.data;
+		this->h = h;
+		od = data->data();
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+		count = o.count;
+		mode_index = o.mode_index;
+		this->ph = ph;
+		if (h->t == obj_t)
+			last_push = (int)((const char*)get_end_head() - data->data());
+		else
+			last_push = o.last_push;
+	}
+
+	json_value(json_value& o, head_t* th, const char* key) {
+		data = o.data;
+		h = o.h;
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+		count = o.count;
+		mode_index = o.mode_index;
+		ph = o.ph;
+		if (th == nullptr) {
+			ph = get_off();
+			//push_head(type_flag_t::obj_t);
+			//h->cl = (length_t)data->size();
+			push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
+		}
+		else {
+			th->n = (next_t)data->size();
+			push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
+		}
+		o.last_push = get_off();
+	}
+
+	void add_node(const char* key, size_t value_off) {
+		if (*count + 1 > prime_list[*mode_index]) {
+			(*mode_index)++;
+			hash_table_t t_hash_table(move(*hash_table));
+			link_table_t t_link_table(move(*link_table));
+			hash_table->resize(prime_list[*mode_index]);
+			*count = 0;
+			for (auto& tn : t_hash_table) {
+				if (tn.hn.value_off) {
+					head_t* th = (head_t*)(data->data() + tn.hn.value_off);
+					hash<no_copy_string> h;
+					size_t hk = h(th->get_key());
+					add_node(hk, tn.hn.value_off, tn.hn.parent);
+					size_t next = tn.hn.next;
+					while (next) {
+						auto& ln = t_link_table[next - 1];
+						head_t* th = (head_t*)(data->data() + ln.value_off);
+						hash<no_copy_string> h;
+						size_t hk = h(th->get_key());
+						add_node(hk, ln.value_off, ln.parent);
+						next = ln.next;
+					}
+				}
+			}
+			//t_hash_table.get_allocator().deallocate(nullptr, -1);
+			//t_link_table.get_allocator().deallocate(nullptr, -1);
+		}
+		hash<no_copy_string> h;
+		size_t hk = h(key);
+		if (hash_node* node = find_node(hk, key)) {
+			node->value_off = value_off;
+			return;
+		}
+		add_node(hk, value_off, ph);
+	}
+
+	void add_node_nofind(const char* key, size_t value_off) {
+		if (*count + 1 > prime_list[*mode_index]) {
+			(*mode_index)++;
+			hash_table_t t_hash_table(move(*hash_table));
+			link_table_t t_link_table(move(*link_table));
+			hash_table->resize(prime_list[*mode_index]);
+			*count = 0;
+			for (auto& tn : t_hash_table) {
+				if (tn.hn.value_off) {
+					head_t* th = (head_t*)(data->data() + tn.hn.value_off);
+					hash<no_copy_string> h;
+					size_t hk = h(th->get_key());
+					add_node(hk, tn.hn.value_off, tn.hn.parent);
+					size_t next = tn.hn.next;
+					while (next) {
+						auto& ln = t_link_table[next - 1];
+						head_t* th = (head_t*)(data->data() + ln.value_off);
+						hash<no_copy_string> h;
+						size_t hk = h(th->get_key());
+						add_node(hk, ln.value_off, ln.parent);
+						next = ln.next;
+					}
+				}
+			}
+			//t_hash_table.get_allocator().deallocate(nullptr, -1);
+			//t_link_table.get_allocator().deallocate(nullptr, -1);
+		}
+		hash<no_copy_string> h;
+		size_t hk = h(key);
+		add_node(hk, value_off, ph);
+	}
+
+	void add_node(size_t key, size_t value_off, size_t ph) {
+		size_t index = key % prime_list[*mode_index];
+		table_node& node = (*hash_table)[index];
+		if (node.hn.value_off == 0) {
+			node.hn.value_off = value_off;
+			node.hn.parent = ph;
+		}
+		else {
+			link_table->push_back({ 0, (uint32_t)ph, (uint32_t)value_off });
+			if (node.hn.next == 0) {
+				node.hn.next = link_table->size();
+			}
+			else {
+				hash_node& end_node = (*link_table)[node.end - 1];
+				end_node.next = link_table->size();
+			}
+			node.end = link_table->size();
+		}
+		(*count)++;
+	}
+
+	hash_node* find_node(const char* key) {
+		hash<no_copy_string> h;
+		size_t hk = h(key);
+		return find_node(hk, key);
+	}
+
+	hash_node* find_node(size_t hk, const char* k) {
+		size_t index = hk % prime_list[*mode_index];
+		table_node& node = (*hash_table)[index];
+		head_t* th = (head_t*)(data->data() + node.hn.value_off);
+		if (ph == node.hn.parent && th->keycmp(k)) {
+			return &node.hn;
+		}
+		size_t next = node.hn.next;
+		while (next) {
+			hash_node& next_node = (*link_table)[next - 1];
+			th = (head_t*)(data->data() + next_node.value_off);
+			if (ph == next_node.parent && th->keycmp(k)) {
+				return &next_node;
+			}
+			next = next_node.next;
+		}
+		return nullptr;
+	}
+
 private:
 	// delete the copy structor and operator, avoid freshman to do some stupid things
 	// if you really really want to copy a entity, please use copy_from
-	json_value(const json_value &) = delete;
+	//json_value(const json_value &) = delete;
 	json_value& operator = (const json_value&) = delete;
 
 	head_t* goto_next_usable_head() {
-		if (h ) {
+		if (h) {
 			const char* begin = data->data();
 			// point to the child begin
-			head_t *th = h;
+			head_t* th = h;
 			while (th) {
 				// if this node was deleted -> jump
 				if (th->t != type_flag_t::del_t) {
@@ -777,7 +1298,7 @@ private:
 	length_t count_size() {
 		if (h && h->cl) {
 			// point to the child begin
-			head_t *th = (head_t*)(data->data() + h->cl);
+			head_t* th = (head_t*)(data->data() + h->cl);
 			length_t i = 0;
 			while (th) {
 				// if this node was deleted -> jump
@@ -799,7 +1320,7 @@ private:
 		if (h && h->t == type_flag_t::arr_t) {
 			const char* begin = data->data();
 			// point to the child begin
-			head_t *th = (head_t*)(begin + h->cl);
+			head_t* th = (head_t*)(begin + h->cl);
 			uint32_t i = 0;
 			while (th) {
 				// if this node was deleted -> jump
@@ -823,17 +1344,18 @@ private:
 		return nullptr;
 	}
 
-	head_t* get_key_head(const char* key) {
+	head_t* get_key_head(const char* key, bool& is_find) {
 		if (h && h->t == type_flag_t::obj_t) {
 			const char* begin = data->data();
 			// point to the child begin
-			head_t *th = (head_t*)(begin + h->cl);
+			head_t* th = (head_t*)(begin + h->cl);
 			while (th) {
 				// if this node was deleted -> jump
 				if (th->t != type_flag_t::del_t) {
 					// if find the key -> reset the head
 					if (th->keycmp(key)) {
-						h = th;
+						//h = th;
+						is_find = true;
 						return th;
 					}
 				}
@@ -848,11 +1370,25 @@ private:
 		return nullptr;
 	}
 
+	head_t* get_end_head() {
+		if (h && h->t == type_flag_t::obj_t) {
+			const char* begin = data->data();
+			// point to the child begin
+			head_t* th = (head_t*)(begin + h->cl);
+			while (th->n) {
+				// point to the brother head
+				th = (head_t*)(begin + th->n);
+			}
+			return th;
+		}
+		return nullptr;
+	}
+
 	bool find_key(const char* key) {
 		if (h && h->t == type_flag_t::obj_t) {
 			const char* begin = data->data();
 			// point to the child begin
-			head_t *th = (head_t*)(begin + h->cl);
+			head_t* th = (head_t*)(begin + h->cl);
 			while (th) {
 				// if this node was deleted -> jump
 				if (th->t != type_flag_t::del_t) {
@@ -872,17 +1408,32 @@ private:
 		return false;
 	}
 
+	bool find_key(const char* key, size_t off) {
+		head_t* th = (head_t*)(data->data() + off);
+		if (th->keycmp(key))
+			return true;
+		return false;
+	}
+
 protected:
-	void update_head(int off) {
+	inline void update_head(int off) {
 		h = (head_t*)(data->data() + off);
+		od = data->data();
+	}
+
+	inline void check_update_head() {
+		if (data->data() != od) {
+			update_head(length_t((const char*)h - od));
+		}
 	}
 
 	void init() {
 		h = (head_t*)data->data();
+		od = data->data();
 	}
 
 	void pre_allocate(size_t base_size) {
-		data->reserve(base_size + base_size / 3 );
+		data->reserve(base_size + base_size / 3);
 		data->resize(0);
 	}
 
@@ -920,32 +1471,61 @@ protected:
 		//add head
 		length_t off = (length_t)data->size();
 		data->resize(data->size() + head_t::head_size());
-		h = (head_t*)(data->data() + off);
+		//h = (head_t*)(data->data() + off);
+		update_head(off);
 		h->t = t;
 	}
 
 	void push_head(flag_t t, const char* key, length_t kl) {
+		flag_t pre_t = h->t;
 		//add head
 		length_t off = (length_t)data->size();
 		data->resize(data->size() + head_t::head_size());
 		//add key end with '\0'
 		push_str(key, kl);
 
-		h = (head_t*)(data->data() + off);
+		update_head(off);
+		//h = (head_t*)(data->data() + off);
 		h->t = t;
 
 		if (kl < 255)
 			h->kl = kl;
 		else
 			h->kl = 255;
+
+		add_node(string(key, kl).c_str(), off);
 	}
 
-	inline string& get_data() {
-		return *data;
+	void push_head_nofind(flag_t t, const char* key, length_t kl) {
+		flag_t pre_t = h->t;
+		//add head
+		length_t off = (length_t)data->size();
+		data->resize(data->size() + head_t::head_size());
+		//add key end with '\0'
+		push_str(key, kl);
+
+		update_head(off);
+		//h = (head_t*)(data->data() + off);
+		h->t = t;
+
+		if (kl < 255)
+			h->kl = kl;
+		else
+			h->kl = 255;
+
+		add_node_nofind(key, off);
+	}
+
+	inline std::string& get_data() {
+		return *((std::string*)data);
 	}
 
 	void set_flag(char f) {
 		h->t = f;
+	}
+
+	void set_ph() {
+		ph = get_off();
 	}
 
 	void push_head_from(flag_t t, head_t* from) {
@@ -959,106 +1539,127 @@ protected:
 		if (kl)
 			push_str(from->get_key());
 		//cur head
-		h = (head_t*)(data->data() + off);
+		update_head(off);
+		//h = (head_t*)(data->data() + off);
 		//old_head
 		h->t = t;
-		h->kl = kl;;
+		h->kl = kl;
+
+		add_node(h->get_key(), off);
 	}
 
 	inline void push_str(const char* str, length_t len) {
 		length_t head_off = length_t((const char*)h - data->data());
 		data->append(str, len);
 		*data += '\0';
-		h = (head_t*)(data->data() + head_off);
+		//h = (head_t*)(data->data() + head_off);
+		update_head(head_off);
 	}
 
 	inline void push_str(const char* str) {
 		length_t head_off = length_t((const char*)h - data->data());
 		*data += str;
 		*data += '\0';
-		h = (head_t*)(data->data() + head_off);
+		update_head(head_off);
+		//h = (head_t*)(data->data() + head_off);
 	}
 
 	template<class N>
-	inline N& push_num() {
+	inline N& push_num(const template_param<N>& num) {
 		h->t = type_flag_t::num_t;
 		length_t head_off = length_t((const char*)h - data->data());
 		data->resize(data->size() + sizeof(number_t));
-		h = (head_t*)(data->data() + head_off);
-		set_num_cl<N>();
+		update_head(head_off);// h = (head_t*)(data->data() + head_off);
+		set_num_cl(num);
 		return *(N*)h->get_val();
 	}
 
 	template<class N>
-	inline void set_num_cl() {
+	inline void set_num_cl(const template_param<N>&) {
 		h->cl = type_flag_t::num_int_t;
 	}
 
-	template<>
-	inline void set_num_cl<double>() {
+	inline void set_num_cl(const template_param<double>&) {
 		h->cl = type_flag_t::num_double_t;
 	}
 
-	template<>
-	inline void set_num_cl<float>() {
+	inline void set_num_cl(const template_param<float>&) {
 		h->cl = type_flag_t::num_double_t;
 	}
 
 	void root_copy(json_value& jv) {
 		data = jv.data;
 		h = jv.h;
+		od = jv.od;
 	}
 
 private:
-	string* data;
+	data_t* data;
 	head_t* h;
+	const char* od;
+	size_t ph;
+
+	size_t last_push;
+
+	hash_table_t* hash_table;
+	link_table_t* link_table;
+	link_table_t* other_table;
+	uint32_t* mode_index;
+	uint32_t* count;
 };
 
 //! a Non - recursive based parser
-class dynamic_json :public json_value {
+template<class DATA_ALLOC = d_alloc_t, class HASH_TABLE_ALLOC = h_alloc_t, class LINK_TABLE_ALLOC = l_alloc_t>
+class dynamic_json_proxy :public json_value<DATA_ALLOC, HASH_TABLE_ALLOC, LINK_TABLE_ALLOC> {
 public:
-	dynamic_json() {
+	typedef json_value<DATA_ALLOC, HASH_TABLE_ALLOC, LINK_TABLE_ALLOC> json_value_t;
+	typedef uint32_t length_t;
+
+	dynamic_json_proxy() : json_value_t() {
 	}
-	~dynamic_json() {
+	dynamic_json_proxy(const char* key) : json_value_t(key) {
+	}
+	~dynamic_json_proxy() {
+		json_value_t::release();
 	}
 private:
-	bool parse_string(json_stream &js) {
+	bool parse_string(json_stream& js) {
 		parser::get_next(js);
-		set_flag(type_flag_t::str_t);
-		int head_off = get_off();
-		size_t end = get_data().size();
-		if (!parser::parse_str(get_data(), js)) {
+		json_value_t::set_flag(json_value_t::type_flag_t::str_t);
+		int head_off = json_value_t::get_off();
+		size_t end = json_value_t::get_data().size();
+		if (!parser::parse_str(json_value_t::get_data(), js)) {
 			ERROR_RETURT(js);
 		}
-		update_head(head_off);
-		update_cl(length_t(get_data().size() - end));
-		get_data() += '\0';
+		json_value_t::update_head(head_off);
+		json_value_t::update_cl(length_t(json_value_t::get_data().size() - end));
+		json_value_t::get_data() += '\0';
 		return true;
 	}
 
-	bool parse_number(json_stream &js) {
+	bool parse_number(json_stream& js) {
 		if (char ch = *js.begin) {
 			if (ch == 'f' || ch == 't') {
-				if (!parser::parse_bool(push_num<bool>(), js)) {
+				if (!parser::parse_bool(json_value_t::push_num(template_param<bool>()), js)) {
 					ERROR_RETURT(js);
 				}
-				set_flag(type_flag_t::boo_t);
+				json_value_t::set_flag(json_value_t::type_flag_t::boo_t);
 			}
 			else if (ch == 'n') {
 				if (!parser::is_null(js)) {
 					ERROR_RETURT(js);
 				}
-				set_flag(type_flag_t::nul_t);
+				json_value_t::set_flag(json_value_t::type_flag_t::nul_t);
 			}
 			else {
 				char res = parser::is_double(js);
 				if (res == -1) {
-					if (!parser::unserialize(&push_num<double>(), js)) {
+					if (!parser::unserialize(&json_value_t::push_num(template_param<double>()), js)) {
 						ERROR_RETURT(js);
 					}
 				}
 				else if (res == 1) {
-					if (!parser::unserialize(&push_num<uint64_t>(), js)) {
+					if (!parser::unserialize(&json_value_t::push_num(template_param<uint64_t>()), js)) {
 						ERROR_RETURT(js);
 					}
 				}
@@ -1076,13 +1677,13 @@ private:
 				arr:[ -> value -> ]
 		\return a reference of json_value
 	*/
-	bool parse(json_stream &js) {
+	bool parse(json_stream& js) {
 		json_stack stack;
 		parser::skip_space(js);
 
 
 		if (*js.begin == parser::json_key_symbol::str) {
-			push_head(type_flag_t::pre_t);
+			json_value_t::push_head(json_value_t::type_flag_t::pre_t);
 			if (!parse_string(js))
 				return false;
 			parser::skip_space(js);
@@ -1098,42 +1699,44 @@ private:
 				parser::skip_space(js);
 				// , end and begin token
 				if (ch == parser::json_key_symbol::next_key_value) {
-					set_next();
+					json_value_t::set_next();
 				}
 				else if (ch == parser::json_key_symbol::object_begin) {
-					if (get_flag() == type_flag_t::pre_t) {
-						set_flag(type_flag_t::obj_t);
-						update_cl();
+					if (json_value_t::get_flag() == json_value_t::type_flag_t::pre_t) {
+						json_value_t::set_flag(json_value_t::type_flag_t::obj_t);
+						json_value_t::update_cl();
+						//set_ph();
 					}
 					else {
-						push_head(type_flag_t::obj_t);
-						update_cl();
+						json_value_t::set_ph();
+						json_value_t::push_head(json_value_t::type_flag_t::obj_t);
+						json_value_t::update_cl();
 					}
-					stack.push({ true,(int)get_off() });
+					stack.push({ true,(int)json_value_t::get_off() });
 				}
 				else if (ch == parser::json_key_symbol::array_begin) {
 					//[], empty array
 					if (*js.begin == parser::json_key_symbol::array_end) {
 						parser::get_next(js);
 						parser::skip_space(js);
-						set_flag(type_flag_t::arr_t);
-						update_cl0();
+						json_value_t::set_flag(json_value_t::type_flag_t::arr_t);
+						json_value_t::update_cl0();
 						continue;
 					}
 					//[x,x,x] and [],[],[]
-					if (get_flag() == type_flag_t::pre_t) {
-						set_flag(type_flag_t::arr_t);
-						update_cl();
+					if (json_value_t::get_flag() == json_value_t::type_flag_t::pre_t) {
+						json_value_t::set_flag(json_value_t::type_flag_t::arr_t);
+						json_value_t::update_cl();
 					}
 					else {
-						push_head(type_flag_t::arr_t);
-						update_cl();
+						json_value_t::push_head(json_value_t::type_flag_t::arr_t);
+						json_value_t::update_cl();
 					}
-					stack.push({ false,(int)get_off() });
+					stack.push({ false,(int)json_value_t::get_off() });
 				}
 				else if (ch == parser::json_key_symbol::object_end) {
 					if (stack.size() > 0 && stack.top().is_obj) {
-						update_head(stack.top().off);
+						json_value_t::update_head(stack.top().off);
 						stack.pop();
 					}
 					else {
@@ -1144,7 +1747,7 @@ private:
 				}
 				else if (ch == parser::json_key_symbol::array_end) {
 					if (stack.size() > 0 && !stack.top().is_obj) {
-						update_head(stack.top().off);
+						json_value_t::update_head(stack.top().off);
 						stack.pop();
 					}
 					else {
@@ -1167,7 +1770,7 @@ private:
 						if (ch == parser::json_key_symbol::str) {
 							//push head
 							const char* b = js.begin;
-							push_head(type_flag_t::pre_t, b, (length_t)parser::skip_str(js));
+							json_value_t::push_head(json_value_t::type_flag_t::pre_t, b, (length_t)parser::skip_str(js));
 
 							//check key_value separator
 							parser::skip_space(js);
@@ -1177,7 +1780,7 @@ private:
 						}
 						//if no value pop stack
 						else if (ch == parser::json_key_symbol::object_end) {
-							update_cl0();
+							json_value_t::update_cl0();
 							stack.pop();
 							continue;
 						}
@@ -1192,7 +1795,7 @@ private:
 					}
 				}
 				else {
-					push_head(type_flag_t::pre_t);
+					json_value_t::push_head(json_value_t::type_flag_t::pre_t);
 				}
 
 				//step 3: parse value
@@ -1231,7 +1834,7 @@ private:
 				return true;
 		}
 		else {
-			push_head(type_flag_t::pre_t);
+			json_value_t::push_head(json_value_t::type_flag_t::pre_t);
 			if (!parse_number(js))
 				return false;
 			parser::skip_space(js);
@@ -1243,7 +1846,7 @@ private:
 		return false;
 	}
 public:
-	void copy_from(json_value& jv) {
+	void copy_from(json_value_t& jv) {
 		root_copy(jv);
 	}
 
@@ -1251,43 +1854,43 @@ public:
 	/*! \param key
 		\return a reference of json_value
 	*/
-	json_value & operator [] (const char* key) {
-		init();
-		return json_value::operator[](key);
+	json_value_t operator [] (const char* key) {
+		json_value_t::init();
+		return json_value_t::operator[](key);
 	}
 
 	//! get a value in array by index
-	/*! \param index 
+	/*! \param index
 		\return a reference of json_value
 	*/
-	json_value& operator [] (int index) {
-		init();
-		return json_value::operator[](index);
+	json_value_t& operator [] (int index) {
+		json_value_t::init();
+		return json_value_t::operator[](index);
 	}
 
 	//! assign a number
 	template<class N>
 	void operator = (N num) {
-		init();
-		return json_value::operator=(num);
+		json_value_t::init();
+		return json_value_t::operator=(num);
 	}
 
 	//! assign a string
 	void operator = (const char* str) {
-		init();
-		return json_value::operator=(str);
+		json_value_t::init();
+		return json_value_t::operator=(str);
 	}
 
 	//! assign a string
 	void operator = (bool num) {
-		init();
-		return json_value::operator=(num);
+		json_value_t::init();
+		return json_value_t::operator=(num);
 	}
 
 	//! assign null
 	void operator = (nullptr_t null) {
-		init();
-		return json_value::operator=(null);
+		json_value_t::init();
+		return json_value_t::operator=(null);
 	}
 
 	//json_value& next(traverse_helper& helper) {
@@ -1295,22 +1898,22 @@ public:
 	//	return json_value::next(helper);
 	//}
 
-	void serialize(string &str) {
-		init();
-		return json_value::serialize(str);
+	void serialize(string& str) {
+		json_value_t::init();
+		return json_value_t::serialize(str);
 	}
 
 	//! unserialize a string with length
 	/*! \brief In this API, the value memery will pre_allocated once time, this is benificial to parse a big json with a high memery
-			   allocation efficiency, algorithm: size = size + size / 3 
+			   allocation efficiency, algorithm: size = size + size / 3
 		\param js json format string
 		\param size the length of the jsonbuffer
 		\param option ASSERT|UNESCAPE|UNESCAPE_UNICODE, when there are multiple options, you can combat them by OR operation
 		\return the lenght of
 	*/
 	size_t unserialize(const char* json, size_t size, char option = 0) {
-		pre_allocate(size);
-		init();
+		json_value_t::pre_allocate(size);
+		json_value_t::init();
 		const char* begin = json;
 		json_stream js{ begin,begin + size,option };
 		if (parse(js))
@@ -1324,8 +1927,8 @@ public:
 		\return the lenght of
 	*/
 	size_t unserialize(const char* json, char option = 0) {
-		pre_allocate(0);
-		init();
+		json_value_t::pre_allocate(0);
+		json_value_t::init();
 		const char* begin = json;
 		json_stream js{ begin,nullptr,option };
 		if (parse(js))
@@ -1338,7 +1941,11 @@ public:
 		\param option ASSERT|UNESCAPE|UNESCAPE_UNICODE, when there are multiple options, you can combat them by OR operation
 		\return the lenght of
 	*/
-	size_t unserialize(const string &js, char option = 0) {
+	size_t unserialize(const string& js, char option = 0) {
 		return unserialize(js.data(), js.size(), option);
 	}
+
 };
+
+typedef dynamic_json_proxy<> dynamic_json;
+typedef dynamic_json_proxy<shm_data_alloc_t, shm_hash_table_alloc_t, shm_link_table_alloc_t> shm_dynamic_json;
