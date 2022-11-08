@@ -434,7 +434,7 @@ protected:
 		//! next node offset
 		next_t n;
 
-		next_t p;
+		//next_t p;
 
 		//! t == arr_t or obj_t -> cl = child offset
 		//  t == num_t -> cl = sub_type (num_int_t or num_double_t)
@@ -524,7 +524,6 @@ public:
 		od = data->data();
 
 		ph = 0;
-		last_push = 0;
 
 		hash_table = new hash_table_t();
 		link_table = new link_table_t();
@@ -555,7 +554,6 @@ public:
 		od = data->data();
 
 		ph = 0;
-		last_push = 0;
 
 		hash_table = new hash_table_t(HASH_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
 		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
@@ -574,7 +572,6 @@ public:
 		od = data->data();
 
 		ph = 0;
-		last_push = 0;
 		hash_table = new hash_table_t(HASH_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
 		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
 		other_table = new link_table_t(HASH_ALLOC(&pack->_other_shmid, &pack->_other_count));
@@ -642,10 +639,8 @@ public:
 		if (key && h) {
 			// set this head as obj_t
 			if (h->t == type_flag_t::pre_t) {
-				ph = get_off();
 				h->t = type_flag_t::obj_t;
-				h->cl = (length_t)data->size();
-				push_head(type_flag_t::pre_t, key, (length_t)strlen(key));
+				return json_value(*this, h.offset, key);
 			}
 			else {
 				// dont find the head -> add this key
@@ -657,58 +652,23 @@ public:
 						return json_value(*this, th, ph);
 				}
 
-				//bool is_find = false;
-				//head_t *th = get_key_head(key, is_find);
-				//if (is_find) {
-				//	return json_value(*this, th, length_t((const char*)th - data->data()));
-				//}
-				// 
-				//head_t* th = get_end_head();
-				//if (!th) {
-				//	push_head(type_flag_t::obj_t);
-				//	h->cl = (length_t)data->size();
-				//}
-
-
-				head_t* th = nullptr;
-				if (last_push == 0) {
+				if (data->size() == 0) {
 					push_head(type_flag_t::obj_t);
-					h->cl = (length_t)data->size();
 				}
-				else {
-					th = (head_t*)(data->data() + last_push);
-					while (th->t == type_flag_t::del_t) {
-						th = (head_t*)(data->data() + th->n);
-					}
-				}
-				return json_value(*this, th, key);
-
-				//head_ptr_t th;
-				//if (last_push == 0) {
-				//	push_head(type_flag_t::obj_t);
-				//	h->cl = (length_t)data->size();
-				//}
-				//else {
-				//	th.update(data, last_push);
-				//	while (th->t == type_flag_t::del_t) {
-				//		th.update(th->n);
-				//	}
-				//}
-				//return json_value(*this, th, key);
+				return json_value(*this, key);
 			}
 		}
 		return *this;
 	}
 
 	//! get arrray value
-	json_value& operator [] (int index) {
+	json_value operator [] (int index) {
 
 		if (index >= 0) {
 			// set this head as obj_t
 			if (h->t == type_flag_t::pre_t) {
 				h->t = type_flag_t::arr_t;
-				h->cl = (length_t)data->size();
-				push_head(type_flag_t::pre_t);
+				return json_value(*this, h.offset);
 			}
 			else {
 				// dont find the head -> add this key
@@ -734,27 +694,22 @@ public:
 	bool next(json_stack* iter_stack, length_t begin = 0) {
 
 		while (h->t == type_flag_t::del_t)
-			//h = (head_t*)(data->data() + h->n);
 			update_head(h->n);
 		if ((h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) && h->cl) {
 			iter_stack->push({ true, (int)((const char*)h - data->data()) });
-			//h = (head_t*)(data->data() + h->cl);
 			update_head(h->cl);
 			return false;
 		}
 		if (h->n) {
-			//h = (head_t*)(data->data() + h->n);
 			update_head(h->n);
 			return false;
 		}
 		else {
 			if (iter_stack->size()) {
 				while (iter_stack->size()) {
-					//h = (head_t*)(data->data() + iter_stack->top().off);
 					update_head(iter_stack->top().off);
 					iter_stack->pop();
 					if (h->n) {
-						//h = (head_t*)(data->data() + h->n);
 						update_head(h->n);
 						return false;
 					}
@@ -775,15 +730,12 @@ public:
 	bool next_brother(length_t begin = 0) {
 
 		while (h->t == type_flag_t::del_t)
-			//h = (head_t*)(data->data() + h->n);
 			update_head(h->n);
 		if (h->n) {
-			//h = (head_t*)(data->data() + h->n);
 			update_head(h->n);
 			return false;
 		}
 		update_head(begin);
-		//h = (head_t*)(data->data() + begin);
 		return true;
 	}
 
@@ -804,10 +756,11 @@ public:
 			}
 			else {
 				h->t = type_flag_t::del_t;
-				int pre_n = h->n;
-				h->n = (next_t)data->size();
+				//int pre_n = h->n;
+				//h->n = (next_t)data->size();
 				push_head_from(type_flag_t::num_t, h);
-				h->n = pre_n;
+				//h->n = pre_n;
+				set_next_next();
 				push_num(template_param<N>()) = num;
 			}
 		}
@@ -830,10 +783,8 @@ public:
 			}
 			else {
 				h->t = type_flag_t::del_t;
-				int pre_n = h->n;
-				h->n = (next_t)data->size();
 				push_head_from(type_flag_t::boo_t, h);
-				h->n = pre_n;
+				set_next_next();
 				push_num(template_param<bool>()) = num;
 			}
 		}
@@ -848,7 +799,8 @@ public:
 			}
 			else {
 				h->t = type_flag_t::del_t;
-				h->n = (next_t)data->size();
+				//h->n = (next_t)data->size();
+				set_next_next();
 				push_head(type_flag_t::nul_t);
 			}
 		}
@@ -866,11 +818,9 @@ public:
 				}
 				else {
 					h->t = type_flag_t::del_t;
-					int pre_n = h->n;
-					h->n = (next_t)data->size();
 					push_head_from(type_flag_t::str_t, h);
 					h->cl = len;
-					h->n = pre_n;
+					set_next_next();
 					push_str(str, len);
 				}
 			}
@@ -892,11 +842,9 @@ public:
 			}
 			else {
 				h->t = type_flag_t::del_t;
-				int pre_n = h->n;
-				h->n = (next_t)data->size();
 				push_head_from(type_flag_t::str_t, h);
 				h->cl = len;
-				h->n = pre_n;
+				set_next_next();
 				push_str(str, len);
 			}
 		}
@@ -1217,7 +1165,6 @@ public:
 		link_table = o.link_table;
 		count = o.count;
 		mode_index = o.mode_index;
-		last_push = o.last_push;
 		ph = o.ph;
 	}
 
@@ -1230,10 +1177,6 @@ public:
 		count = o.count;
 		mode_index = o.mode_index;
 		this->ph = ph;
-		if (h->t == obj_t)
-			last_push = (int)((const char*)get_end_head() - data->data());
-		else
-			last_push = o.last_push;
 	}
 
 	json_value(json_value& o, const head_ptr_t& th, const char* key) {
@@ -1246,18 +1189,15 @@ public:
 		ph = o.ph;
 		if (th == nullptr) {
 			ph = get_off();
-			//push_head(type_flag_t::obj_t);
-			//h->cl = (length_t)data->size();
 			push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
 		}
 		else {
-			th->n = (next_t)data->size();
+			set_next_next();
 			push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
 		}
-		o.last_push = get_off();
 	}
 
-	json_value(json_value& o, head_t* th, const char* key) {
+	json_value(json_value& o, const char* key) {
 		data = o.data;
 		h = o.h;
 		hash_table = o.hash_table;
@@ -1265,17 +1205,40 @@ public:
 		count = o.count;
 		mode_index = o.mode_index;
 		ph = o.ph;
-		if (th == nullptr) {
-			ph = get_off();
-			//push_head(type_flag_t::obj_t);
-			//h->cl = (length_t)data->size();
-			push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
-		}
-		else {
-			th->n = (next_t)data->size();
-			push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
-		}
-		o.last_push = get_off();
+		ph = get_off();
+			
+		push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
+		set_next_next();
+	}
+
+	json_value(json_value& o, size_t ph, const char* key) {
+		data = o.data;
+		h = o.h;
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+		count = o.count;
+		mode_index = o.mode_index;
+		this->ph = ph;
+		push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
+		set_next_next();
+	}
+
+	json_value(json_value& o, size_t ph) {
+		data = o.data;
+		h = o.h;
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+		count = o.count;
+		mode_index = o.mode_index;
+		this->ph = ph;
+		push_head(type_flag_t::pre_t);
+		set_next_next();
+	}
+
+	void set_next_next() {
+		head_t* th = (head_t*)(data->data() + ph);
+		h->n = th->cl;
+		th->cl = h.offset;
 	}
 
 	void add_node(const char* key, size_t value_off) {
@@ -1694,8 +1657,6 @@ private:
 	head_ptr_t h;
 	const char* od;
 	size_t ph;
-
-	size_t last_push;
 
 	hash_table_t* hash_table;
 	link_table_t* link_table;
