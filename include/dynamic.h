@@ -119,12 +119,6 @@ struct hash_node
 	uint32_t value_off = 0;
 };
 
-struct table_node
-{
-	hash_node hn;
-	uint32_t end = 0;
-};
-
 struct shm_pack {
 	size_t _data_shmid = -1;
 	size_t _data_count = 0;
@@ -255,7 +249,6 @@ public:
 	}
 };
 
-
 class mmp_op {
 public:
 	static void* allocate(const char* key, size_t size) {
@@ -307,20 +300,17 @@ public:
 };
 
 typedef std_allocator<char> d_alloc_t;
-typedef std_allocator<table_node> h_alloc_t;
-typedef std_allocator<hash_node> l_alloc_t;
+typedef std_allocator<hash_node> h_alloc_t;
 #ifdef unix
 typedef shm_allocator<char> shm_data_alloc_t;
-typedef shm_allocator<table_node> shm_hash_table_alloc_t;
-typedef shm_allocator<hash_node> shm_link_table_alloc_t;
+typedef shm_allocator<hash_node> shm_hash_alloc_t;
 #else
 typedef std_allocator<char> shm_data_alloc_t;
-typedef std_allocator<table_node> shm_hash_table_alloc_t;
-typedef std_allocator<hash_node> shm_link_table_alloc_t;
+typedef std_allocator<hash_node> shm_hash_alloc_t;
 #endif
 
 //! an efficient array-linked structure
-template<class DATA_ALLOC = d_alloc_t, class HASH_TABLE_ALLOC = h_alloc_t, class LINK_TABLE_ALLOC = l_alloc_t>
+template<class DATA_ALLOC = d_alloc_t, class HASH_ALLOC = h_alloc_t>
 struct json_value {
 public:
 	//! inorder to support old compiler, separeate with type_flag_t
@@ -341,9 +331,9 @@ public:
 
 	typedef std::basic_string<char, std::char_traits<char>, DATA_ALLOC> data_t;
 
-	typedef std::vector<table_node, HASH_TABLE_ALLOC> hash_table_t;
+	typedef std::vector<hash_node, HASH_ALLOC> hash_table_t;
 
-	typedef std::vector<hash_node, LINK_TABLE_ALLOC> link_table_t;
+	typedef std::vector<hash_node, HASH_ALLOC> link_table_t;
 
 	//! all the json token type
 	enum type_flag_t
@@ -444,6 +434,8 @@ protected:
 		//! next node offset
 		next_t n;
 
+		next_t p;
+
 		//! t == arr_t or obj_t -> cl = child offset
 		//  t == num_t -> cl = sub_type (num_int_t or num_double_t)
 		//  t == str_t -> cl = strlen
@@ -465,6 +457,13 @@ protected:
 
 		bool keycmp(const char* key) {
 			const char* fk = ((const char*)this + head_size());
+			uint8_t i = 0;
+			uint8_t e = kl;
+			for (uint8_t i = 0; i <= kl / 2; i++, --e) {
+				if (fk[i] != key[i] || fk[e] != key[e])
+					return false;
+			}
+			return true;
 			if (!strcmp(fk, key)) {
 				return true;
 			}
@@ -479,6 +478,8 @@ protected:
 			if (kl < 255)
 				return kl == 0 ? (char*)this + head_size() + kl : (char*)this + head_size() + kl + 1;
 			return (char*)this + head_size() + strlen(get_key()) + 1;
+
+			//return kl == 0 ? (char*)this + head_size() + kl : (char*)this + head_size() + strlen(get_key()) + 1;
 		}
 
 		template<class N>
@@ -556,9 +557,9 @@ public:
 		ph = 0;
 		last_push = 0;
 
-		hash_table = new hash_table_t(HASH_TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
-		link_table = new link_table_t(LINK_TABLE_ALLOC(&pack->_link_shmid, &pack->_link_count));
-		other_table = new link_table_t(LINK_TABLE_ALLOC(&pack->_other_shmid, &pack->_other_count));
+		hash_table = new hash_table_t(HASH_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
+		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
+		other_table = new link_table_t(HASH_ALLOC(&pack->_other_shmid, &pack->_other_count));
 		other_table->resize(1);
 		mode_index = &(*other_table)[0].next;
 		count = &(*other_table)[0].parent;
@@ -574,9 +575,9 @@ public:
 
 		ph = 0;
 		last_push = 0;
-		hash_table = new hash_table_t(HASH_TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
-		link_table = new link_table_t(LINK_TABLE_ALLOC(&pack->_link_shmid, &pack->_link_count));
-		other_table = new link_table_t(LINK_TABLE_ALLOC(&pack->_other_shmid, &pack->_other_count));
+		hash_table = new hash_table_t(HASH_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
+		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
+		other_table = new link_table_t(HASH_ALLOC(&pack->_other_shmid, &pack->_other_count));
 		hash_table->reserve(pack->_hash_count);
 		link_table->reserve(pack->_link_count);
 		other_table->reserve(pack->_other_count);
@@ -600,7 +601,7 @@ public:
 	}
 
 	inline size_t gdata1() {
-		return hash_table->size() * sizeof(table_node) + link_table->size() * sizeof(hash_node);
+		return hash_table->size() * sizeof(hash_node) + link_table->size() * sizeof(hash_node);
 	}
 
 	void release() {
@@ -1285,25 +1286,25 @@ public:
 			hash_table->resize(prime_list[*mode_index]);
 			*count = 0;
 			for (auto& tn : t_hash_table) {
-				if (tn.hn.value_off) {
-					head_t* th = (head_t*)(data->data() + tn.hn.value_off);
+				head_t* th = (head_t*)(data->data() + tn.value_off);
+				if (tn.value_off && th->t != type_flag_t::del_t) {
+					head_t* th = (head_t*)(data->data() + tn.value_off);
 					hash<no_copy_string> h;
 					size_t hk = h(th->get_key());
-					add_node(hk, tn.hn.value_off, tn.hn.parent);
-					size_t next = tn.hn.next;
+					add_node(hk, tn.value_off, tn.parent);
+					size_t next = tn.next;
 					while (next) {
 						auto& ln = t_link_table[next - 1];
 						head_t* th = (head_t*)(data->data() + ln.value_off);
-						hash<no_copy_string> h;
-						size_t hk = h(th->get_key());
-						add_node(hk, ln.value_off, ln.parent);
+						if (th->t != type_flag_t::del_t) {
+							hash<no_copy_string> h;
+							size_t hk = h(th->get_key());
+							add_node(hk, ln.value_off, ln.parent);
+						}
 						next = ln.next;
 					}
 				}
 			}
-			//cout<< "release 1"<<endl;
-			//t_hash_table.get_allocator().release();
-			//t_link_table.get_allocator().release();
 		}
 		hash<no_copy_string> h;
 		size_t hk = h(key);
@@ -1322,25 +1323,24 @@ public:
 			hash_table->resize(prime_list[*mode_index]);
 			*count = 0;
 			for (auto& tn : t_hash_table) {
-				if (tn.hn.value_off) {
-					head_t* th = (head_t*)(data->data() + tn.hn.value_off);
+				head_t* th = (head_t*)(data->data() + tn.value_off);
+				if (tn.value_off && th->t != type_flag_t::del_t) {
 					hash<no_copy_string> h;
 					size_t hk = h(th->get_key());
-					add_node(hk, tn.hn.value_off, tn.hn.parent);
-					size_t next = tn.hn.next;
+					add_node(hk, tn.value_off, tn.parent);
+					size_t next = tn.next;
 					while (next) {
 						auto& ln = t_link_table[next - 1];
 						head_t* th = (head_t*)(data->data() + ln.value_off);
-						hash<no_copy_string> h;
-						size_t hk = h(th->get_key());
-						add_node(hk, ln.value_off, ln.parent);
+						if (th->t != type_flag_t::del_t) {
+							hash<no_copy_string> h;
+							size_t hk = h(th->get_key());
+							add_node(hk, ln.value_off, ln.parent);
+						}
 						next = ln.next;
 					}
 				}
 			}
-			//cout<< "release 2"<<endl;
-			//t_hash_table.get_allocator().release();
-			//t_link_table.get_allocator().release();
 		}
 		hash<no_copy_string> h;
 		size_t hk = h(key);
@@ -1349,21 +1349,14 @@ public:
 
 	void add_node(size_t key, size_t value_off, size_t ph) {
 		size_t index = key % prime_list[*mode_index];
-		table_node& node = (*hash_table)[index];
-		if (node.hn.value_off == 0) {
-			node.hn.value_off = value_off;
-			node.hn.parent = ph;
+		hash_node& node = (*hash_table)[index];
+		if (node.value_off == 0) {
+			node.value_off = value_off;
+			node.parent = ph;
 		}
 		else {
-			link_table->push_back({ 0, (uint32_t)ph, (uint32_t)value_off });
-			if (node.hn.next == 0) {
-				node.hn.next = link_table->size();
-			}
-			else {
-				hash_node& end_node = (*link_table)[node.end - 1];
-				end_node.next = link_table->size();
-			}
-			node.end = link_table->size();
+			link_table->push_back({ node.next, (uint32_t)ph, (uint32_t)value_off });
+			node.next = link_table->size();
 		}
 		(*count)++;
 	}
@@ -1376,16 +1369,16 @@ public:
 
 	hash_node* find_node(size_t hk, const char* k) {
 		size_t index = hk % prime_list[*mode_index];
-		table_node& node = (*hash_table)[index];
-		head_t* th = (head_t*)(data->data() + node.hn.value_off);
-		if (ph == node.hn.parent && th->keycmp(k)) {
-			return &node.hn;
+		hash_node& node = (*hash_table)[index];
+		head_t* th = (head_t*)(data->data() + node.value_off);
+		if (ph == node.parent && th->keycmp(k) && th->t != type_flag_t::del_t) {
+			return &node;
 		}
-		size_t next = node.hn.next;
+		size_t next = node.next;
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
 			th = (head_t*)(data->data() + next_node.value_off);
-			if (ph != next_node.parent || !th->keycmp(k)) {
+			if (ph != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t) {
 				next = next_node.next;
 				continue;
 			}
@@ -1712,10 +1705,10 @@ private:
 };
 
 //! a Non - recursive based parser
-template<class DATA_ALLOC = d_alloc_t, class HASH_TABLE_ALLOC = h_alloc_t, class LINK_TABLE_ALLOC = l_alloc_t>
-class dynamic_json_proxy :public json_value<DATA_ALLOC, HASH_TABLE_ALLOC, LINK_TABLE_ALLOC> {
+template<class DATA_ALLOC = d_alloc_t, class HASH_ALLOC = h_alloc_t>
+class dynamic_json_proxy :public json_value<DATA_ALLOC, HASH_ALLOC> {
 public:
-	typedef json_value<DATA_ALLOC, HASH_TABLE_ALLOC, LINK_TABLE_ALLOC> json_value_t;
+	typedef json_value<DATA_ALLOC, HASH_ALLOC> json_value_t;
 	typedef uint32_t length_t;
 
 	dynamic_json_proxy() : json_value_t() {
@@ -2042,4 +2035,4 @@ public:
 };
 
 typedef dynamic_json_proxy<> dynamic_json;
-typedef dynamic_json_proxy<shm_data_alloc_t, shm_hash_table_alloc_t, shm_link_table_alloc_t> shm_dynamic_json;
+typedef dynamic_json_proxy<shm_data_alloc_t, shm_hash_alloc_t> shm_dynamic_json;
