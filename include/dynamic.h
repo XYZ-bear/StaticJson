@@ -3,6 +3,7 @@
 #include <vector>
 #include <functional>
 #include <map>
+#include <math.h>
 
 #ifdef unix
 #include <unistd.h>
@@ -102,6 +103,14 @@ private:
 	bool end;
 	int begin;
 };
+
+size_t six_prime_index(size_t n) {
+	return (sqrt(12 * n - 3) - 3) / 6;
+}
+
+size_t six_prime(size_t idx) {
+	return 3 * (idx * idx + idx) + 1;
+}
 
 static vector<size_t> prime_list = { 53 , 97, 193, 389, 769, 1543, 3079, 6151, 12289, 24593, 49157, 98317, 196613, 393241, 786433, 1572869, 3145739, 6291469, 12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741 };
 
@@ -536,7 +545,7 @@ protected:
 public:
 	json_value() {
 		data = new data_t();
-		
+
 		h = head_ptr_t(data, 0);
 		push_head_init();
 
@@ -544,10 +553,7 @@ public:
 
 		hash_table = new hash_table_t();
 		link_table = new link_table_t();
-		other_table = new link_table_t(1);
-		mode_index = &(*other_table)[0].next;
-		count = &(*other_table)[0].parent;
-		hash_table->resize(prime_list[*mode_index]);
+		hash_table->resize(61);
 	}
 
 	json_value(const char* key) {
@@ -573,11 +579,7 @@ public:
 
 		hash_table = new hash_table_t(TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
 		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
-		other_table = new link_table_t(HASH_ALLOC(&pack->_other_shmid, &pack->_other_count));
-		other_table->resize(1);
-		mode_index = &(*other_table)[0].next;
-		count = &(*other_table)[0].parent;
-		hash_table->resize(prime_list[*mode_index]);
+		hash_table->resize(61);
 	}
 
 	void init_from_pack(shm_pack* pack) {
@@ -589,19 +591,14 @@ public:
 		ph = 0;
 		hash_table = new hash_table_t(TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
 		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
-		other_table = new link_table_t(HASH_ALLOC(&pack->_other_shmid, &pack->_other_count));
 		hash_table->reserve(pack->_hash_count);
 		link_table->reserve(pack->_link_count);
-		other_table->reserve(pack->_other_count);
-		mode_index = &(*other_table)[0].next;
-		count = &(*other_table)[0].parent;
 	}
 
 	shm_pack get_shm_pack() {
 		return { data->get_allocator().get_shmid(), data->size(),
 				 hash_table->get_allocator().get_shmid(), hash_table->size(),
-				 link_table->get_allocator().get_shmid(), link_table->size(),
-				 other_table->get_allocator().get_shmid(), other_table->size()
+				 link_table->get_allocator().get_shmid(), link_table->size()
 		};
 	}
 
@@ -620,7 +617,6 @@ public:
 		delete data;
 		delete hash_table;
 		delete link_table;
-		delete other_table;
 	}
 
 	void release_shm(const char* key) {
@@ -629,7 +625,6 @@ public:
 			data->get_allocator().release();
 			hash_table->get_allocator().release();
 			link_table->get_allocator().release();
-			other_table->get_allocator().release();
 		}
 	}
 
@@ -907,7 +902,7 @@ public:
 		size_t off = data->size();
 		size_t kl = type_len(key);
 		size_t vl = type_len(val);
-		data->resize(off + head_t::head_size() + kl + vl);
+		data->resize(off + sizeof(head_t) + kl + vl);
 		head_t* th = (head_t*)(data->data() + off);
 		th->kl = kl;
 		th->t = val_type(val);
@@ -1234,8 +1229,6 @@ public:
 		h = o.h;
 		hash_table = o.hash_table;
 		link_table = o.link_table;
-		count = o.count;
-		mode_index = o.mode_index;
 		ph = o.ph;
 	}
 
@@ -1244,8 +1237,6 @@ public:
 		this->h = h;
 		hash_table = o.hash_table;
 		link_table = o.link_table;
-		count = o.count;
-		mode_index = o.mode_index;
 		this->ph = ph;
 	}
 
@@ -1254,8 +1245,6 @@ public:
 		h = o.h;
 		hash_table = o.hash_table;
 		link_table = o.link_table;
-		count = o.count;
-		mode_index = o.mode_index;
 		ph = o.ph;
 		if (th == nullptr) {
 			ph = get_off();
@@ -1272,11 +1261,8 @@ public:
 		h = o.h;
 		hash_table = o.hash_table;
 		link_table = o.link_table;
-		count = o.count;
-		mode_index = o.mode_index;
-		ph = o.ph;
 		ph = get_off();
-			
+
 		push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
 		set_next_next();
 	}
@@ -1286,8 +1272,6 @@ public:
 		h = o.h;
 		hash_table = o.hash_table;
 		link_table = o.link_table;
-		count = o.count;
-		mode_index = o.mode_index;
 		this->ph = ph;
 		push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
 		set_next_next();
@@ -1298,8 +1282,6 @@ public:
 		h = o.h;
 		hash_table = o.hash_table;
 		link_table = o.link_table;
-		count = o.count;
-		mode_index = o.mode_index;
 		this->ph = ph;
 		push_head(type_flag_t::pre_t);
 		set_next_next();
@@ -1312,23 +1294,26 @@ public:
 	}
 
 	void add_node(const char* key, size_t value_off) {
-		if (*count + 1 > prime_list[*mode_index]) {
-			(*mode_index)++;
+		if (link_table->size() + 1 > hash_table->size()) {
 			hash_table_t t_hash_table(move(*hash_table));
 			link_table_t t_link_table(move(*link_table));
-			hash_table->resize(prime_list[*mode_index]);
-			*count = 0;
-			for (auto& tn : t_hash_table) {
-				size_t next = tn;
+
+			auto pr = six_prime_index(t_link_table.size());
+			hash_table->resize(six_prime(2*pr));
+			link_table->reserve(t_link_table.size());
+
+			for (auto& next : t_hash_table) {
+				//size_t next = tn;
 				while (next) {
 					auto& ln = t_link_table[next - 1];
 					head_t* th = (head_t*)(data->data() + ln.value_off);
+					next = ln.next;
 					if (th->t != type_flag_t::del_t) {
 						hash<no_copy_string> h;
 						size_t hk = h(th->get_key());
-						add_node(hk, ln.value_off, ln.parent);
+						add_node(hk, ln);
 					}
-					next = ln.next;
+					
 				}
 			}
 		}
@@ -1338,68 +1323,74 @@ public:
 			node->value_off = value_off;
 			return;
 		}
-		add_node(hk, value_off, ph);
+		hash_node hh = { 0, ph, value_off };
+		add_node(hk, hh);
 	}
 
 	void add_node_nofind(const char* key, size_t value_off) {
-		if (*count + 1 > prime_list[*mode_index]) {
-			(*mode_index)++;
+		if (link_table->size() + 1 > hash_table->size()) {
 			hash_table_t t_hash_table(move(*hash_table));
 			link_table_t t_link_table(move(*link_table));
-			hash_table->resize(prime_list[*mode_index]);
-			*count = 0;
-			for (auto& tn : t_hash_table) {
-				size_t next = tn;
+
+			auto pr = six_prime_index(t_link_table.size());
+			hash_table->resize(six_prime(2*pr));
+			link_table->reserve(t_link_table.size());
+			for (auto& next : t_hash_table) {
+				//size_t next = tn;
 				while (next) {
 					auto& ln = t_link_table[next - 1];
 					head_t* th = (head_t*)(data->data() + ln.value_off);
+					next = ln.next;
 					if (th->t != type_flag_t::del_t) {
 						hash<no_copy_string> h;
 						size_t hk = h(th->get_key());
-						add_node(hk, ln.value_off, ln.parent);
+						add_node(hk, ln);
 					}
-					next = ln.next;
+					
 				}
 			}
 		}
 		hash<no_copy_string> h;
 		size_t hk = h(key);
-		add_node(hk, value_off, ph);
+		hash_node hh = { 0, ph, value_off };
+		add_node(hk, hh);
 	}
 
 	template<class K>
 	void add_node_nofind(K key, size_t value_off) {
-		if (*count + 1 > prime_list[*mode_index]) {
-			(*mode_index)++;
+		if (link_table->size() + 1 > hash_table->size()) {
 			hash_table_t t_hash_table(move(*hash_table));
 			link_table_t t_link_table(move(*link_table));
-			hash_table->resize(prime_list[*mode_index]);
-			*count = 0;
-			for (auto& tn : t_hash_table) {
-				size_t next = tn;
+
+			auto pr = six_prime_index(t_link_table.size());
+			hash_table->resize(six_prime(2*pr));
+			link_table->reserve(t_link_table.size());
+			for (auto& next : t_hash_table) {
 				while (next) {
 					auto& ln = t_link_table[next - 1];
 					head_t* th = (head_t*)(data->data() + ln.value_off);
+					next = ln.next;
 					if (th->t != type_flag_t::del_t) {
 						hash<no_copy_string> h;
 						size_t hk = h(th->get_key());
-						add_node(hk, ln.value_off, ln.parent);
+						add_node(hk, ln);
 					}
-					next = ln.next;
+					
 				}
 			}
 		}
 		hash<K> h;
 		size_t hk = h(key);
-		add_node(hk, value_off, ph);
+		hash_node hh = {0, ph, value_off};
+		add_node(hk,hh);
 	}
 
-	void add_node(size_t key, size_t value_off, size_t ph) {
-		size_t index = key % prime_list[*mode_index];
+	void add_node(size_t key, hash_node& hn) {
+		size_t index = key % hash_table->size();
 		uint32_t& node = (*hash_table)[index];
-		link_table->push_back({ node, (uint32_t)ph, (uint32_t)value_off });
+		hn.next = node;
+		link_table->emplace_back(hn);
 		node = link_table->size();
-		(*count)++;
 	}
 
 	hash_node* find_node(const char* key) {
@@ -1409,7 +1400,7 @@ public:
 	}
 
 	hash_node* find_node(size_t hk, const char* k) {
-		size_t index = hk % prime_list[*mode_index];
+		size_t index = hk % hash_table->size();
 		size_t next = (*hash_table)[index];;
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
@@ -1428,7 +1419,7 @@ public:
 		hash<K> h;
 		size_t hk = h(k);
 
-		size_t index = hk % prime_list[*mode_index];
+		size_t index = hk % hash_table->size();
 		size_t next = (*hash_table)[index];
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
@@ -1768,9 +1759,6 @@ private:
 
 	hash_table_t* hash_table;
 	link_table_t* link_table;
-	link_table_t* other_table;
-	uint32_t* mode_index;
-	uint32_t* count;
 };
 
 //! a Non - recursive based parser
@@ -2103,3 +2091,4 @@ public:
 
 typedef dynamic_json_proxy<> dynamic_json;
 typedef dynamic_json_proxy<shm_data_alloc_t, shm_table_alloc_t, shm_hash_alloc_t> shm_dynamic_json;
+
