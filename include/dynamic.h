@@ -220,6 +220,9 @@ public:
 };
 #endif
 
+#define MAX_KEY_LEN(kl) kl < 255 ? kl : 255
+#define CHECK_MAX_KEY_LEN(kl) kl < 255
+
 template <typename T>
 class std_allocator : public std::allocator<T>
 {
@@ -385,12 +388,34 @@ public:
 		}
 	};
 
+	template<class KV>
+	inline size_t type_len(KV) {
+		return sizeof(number_t);
+	}
+
+	inline size_t type_len(const char* key) {
+		return strlen(key) + 1;
+	}
+
+	template<class KV>
+	inline size_t val_type(KV) {
+		return type_flag_t::num_t;
+	}
+
+	inline size_t val_type(const char* key) {
+		return type_flag_t::str_t;
+	}
+
 	template<class PTR>
 	struct offset_ptr
 	{
 		data_t* ptr = nullptr;
 		size_t offset = 0;
 		offset_ptr() {
+		}
+		offset_ptr(data_t* p) {
+			ptr = p;
+			offset = p->size();
 		}
 		offset_ptr(data_t* p, size_t o) {
 			ptr = p;
@@ -433,6 +458,10 @@ public:
 		}
 		inline void refresh() {
 			offset = ptr->size();
+		}
+		inline void grow_refresh(size_t len) {
+			offset = ptr->size();
+			ptr->resize(offset + len);
 		}
 	};
 
@@ -483,10 +512,31 @@ protected:
 		template<class K>
 		inline void set_key(K key, size_t kl) {
 			*(K*)get_key() = key;
+			this->kl = kl;
 		}
 
 		inline void set_key(const char* key, size_t kl) {
 			memcpy((void*)get_key(), key, kl);
+			this->kl = MAX_KEY_LEN(kl);
+		}
+
+		inline void set_key_0(const char* key, size_t kl) {
+			char* tk = (char*)this + head_size();
+			memcpy((void*)tk, key, kl);
+			*(tk + kl) = '\0';
+			this->kl = MAX_KEY_LEN(kl + 1);
+		}
+
+		template<class K>
+		inline void set_key(K key) {
+			*(K*)get_key() = key;
+			this->kl = type_len(key);
+		}
+
+		inline void set_key(const char* key) {
+			this->kl = MAX_KEY_LEN(type_len(key));
+			memcpy((void*)get_key(), key, this->kl);
+
 		}
 
 		inline const char* get_key() {
@@ -494,18 +544,16 @@ protected:
 		}
 
 		template<class N>
-		void set_val(N num, size_t vl = 0) {
+		inline void set_val(N num, size_t vl = 0) {
 			*(N*)(get_val()) = num;
 		}
 
-		void set_val(const char* str, length_t len) {
+		inline void set_val(const char* str, length_t len) {
 			memcpy(get_val(), str, len);
 		}
 
-		char* get_val() {
-			if (kl < 255)
-				return (char*)this + head_size() + kl;
-			return (char*)this + head_size() + strlen(get_key()) + 1;
+		inline char* get_val() {
+			return CHECK_MAX_KEY_LEN(kl) ? (char*)this + head_size() + kl : (char*)this + head_size() + strlen(get_key()) + 1;
 		}
 
 		template<class N>
@@ -879,24 +927,6 @@ public:
 		}
 	}
 
-	template<class KV>
-	inline size_t type_len(KV) {
-		return sizeof(number_t);
-	}
-
-	inline size_t type_len(const char* key) {
-		return strlen(key) + 1;
-	}
-
-	template<class KV>
-	inline size_t val_type(KV) {
-		return type_flag_t::num_t;
-	}
-
-	inline size_t val_type(const char* key) {
-		return type_flag_t::str_t;
-	}
-
 	template<class K, class V>
 	void insert(K key, V val) {
 		size_t off = data->size();
@@ -1248,11 +1278,11 @@ public:
 		ph = o.ph;
 		if (th == nullptr) {
 			ph = get_off();
-			push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
+			push_head_nofind(type_flag_t::pre_t, key);
 		}
 		else {
 			set_next_next();
-			push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
+			push_head_nofind(type_flag_t::pre_t, key);
 		}
 	}
 
@@ -1263,7 +1293,7 @@ public:
 		link_table = o.link_table;
 		ph = get_off();
 
-		push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
+		push_head_nofind(type_flag_t::pre_t, key);
 		set_next_next();
 	}
 
@@ -1273,7 +1303,7 @@ public:
 		hash_table = o.hash_table;
 		link_table = o.link_table;
 		this->ph = ph;
-		push_head_nofind(type_flag_t::pre_t, key, (length_t)strlen(key));
+		push_head_nofind(type_flag_t::pre_t, key);
 		set_next_next();
 	}
 
@@ -1293,17 +1323,15 @@ public:
 		th->cl = h.offset;
 	}
 
-	void add_node(const char* key, size_t value_off) {
+	void hash_rebuild() {
 		if (link_table->size() + 1 > hash_table->size()) {
 			hash_table_t t_hash_table(move(*hash_table));
 			link_table_t t_link_table(move(*link_table));
 
 			auto pr = six_prime_index(t_link_table.size());
-			hash_table->resize(six_prime(2*pr));
+			hash_table->resize(six_prime(2 * pr));
 			link_table->reserve(t_link_table.size());
-
 			for (auto& next : t_hash_table) {
-				//size_t next = tn;
 				while (next) {
 					auto& ln = t_link_table[next - 1];
 					head_t* th = (head_t*)(data->data() + ln.value_off);
@@ -1313,10 +1341,13 @@ public:
 						size_t hk = h(th->get_key());
 						add_node(hk, ln);
 					}
-					
 				}
 			}
 		}
+	}
+
+	void add_node(const char* key, size_t value_off) {
+		hash_rebuild();
 		hash<no_copy_string> h;
 		size_t hk = h(key);
 		if (hash_node* node = find_node(hk, key)) {
@@ -1328,28 +1359,7 @@ public:
 	}
 
 	void add_node_nofind(const char* key, size_t value_off) {
-		if (link_table->size() + 1 > hash_table->size()) {
-			hash_table_t t_hash_table(move(*hash_table));
-			link_table_t t_link_table(move(*link_table));
-
-			auto pr = six_prime_index(t_link_table.size());
-			hash_table->resize(six_prime(2*pr));
-			link_table->reserve(t_link_table.size());
-			for (auto& next : t_hash_table) {
-				//size_t next = tn;
-				while (next) {
-					auto& ln = t_link_table[next - 1];
-					head_t* th = (head_t*)(data->data() + ln.value_off);
-					next = ln.next;
-					if (th->t != type_flag_t::del_t) {
-						hash<no_copy_string> h;
-						size_t hk = h(th->get_key());
-						add_node(hk, ln);
-					}
-					
-				}
-			}
-		}
+		hash_rebuild();
 		hash<no_copy_string> h;
 		size_t hk = h(key);
 		hash_node hh = { 0, ph, value_off };
@@ -1358,27 +1368,7 @@ public:
 
 	template<class K>
 	void add_node_nofind(K key, size_t value_off) {
-		if (link_table->size() + 1 > hash_table->size()) {
-			hash_table_t t_hash_table(move(*hash_table));
-			link_table_t t_link_table(move(*link_table));
-
-			auto pr = six_prime_index(t_link_table.size());
-			hash_table->resize(six_prime(2*pr));
-			link_table->reserve(t_link_table.size());
-			for (auto& next : t_hash_table) {
-				while (next) {
-					auto& ln = t_link_table[next - 1];
-					head_t* th = (head_t*)(data->data() + ln.value_off);
-					next = ln.next;
-					if (th->t != type_flag_t::del_t) {
-						hash<no_copy_string> h;
-						size_t hk = h(th->get_key());
-						add_node(hk, ln);
-					}
-					
-				}
-			}
-		}
+		hash_rebuild();
 		hash<K> h;
 		size_t hk = h(key);
 		hash_node hh = {0, ph, value_off};
@@ -1623,56 +1613,37 @@ protected:
 
 	void push_head(flag_t t) {
 		//add head
-		//update_head(data->size());
-		h.refresh();
-		data->resize(data->size() + head_t::head_size());
+		h.grow_refresh(sizeof(head_t));
 		h->t = t;
 	}
 
-	void push_head(flag_t t, const char* key, length_t kl) {
+	void push_head_0(flag_t t, const char* key, length_t kl) {
 		//add head
-		//update_head(data->size());
-		h.refresh();
-		data->resize(data->size() + head_t::head_size());
+		h.grow_refresh(sizeof(head_t) + kl + 1);
 		//add key end with '\0'
-		push_str(key, kl);
+		h->set_key_0(key, kl);
 
 		h->t = t;
-		kl++;
-		if (kl < 255)
-			h->kl = kl;
-		else
-			h->kl = 255;
 
 		add_node(key, h.offset);
 	}
 
-	void push_head_nofind(flag_t t, const char* key, length_t kl) {
+	void push_head_nofind(flag_t t, const char* key) {
 		//add head
-		//update_head(data->size());
-		h.refresh();
-		data->resize(data->size() + head_t::head_size());
+		auto kl = type_len(key);
+		h.grow_refresh(sizeof(head_t) + kl);
 		//add key end with '\0'
-		push_key(key, ++kl);
+		h->set_key(key, kl);
 
 		h->t = t;
-
-		if (kl < 255)
-			h->kl = kl;
-		else
-			h->kl = 255;
 
 		add_node_nofind(key, h.offset);
 	}
 
+
 	void push_head_init() {
 		//add head
-		//update_head(data->size());
-		h.refresh();
-		data->resize(data->size() + head_t::head_size());
-		//add key end with '\0'
-		//push_key(key, ++kl);
-
+		h.grow_refresh(sizeof(head_t));
 		h->t = type_flag_t::pre_t;
 		h->kl = 0;
 
@@ -1691,22 +1662,16 @@ protected:
 		ph = get_off();
 	}
 
-	void push_head_from(flag_t t, head_ptr_t& from) {
+	void push_head_from(flag_t t, head_ptr_t from) {
 		//add head
 		//update_head(data->size());
-		length_t off = length_t(data->size());
-		data->resize(data->size() + head_t::head_size());
-		//add key end with '\0'
 		key_t kl = from->kl;
-		if (kl)
-			push_key(from->get_key(), kl);
-		//cur head
-		update_head(off);
-		//old_head
+		h.grow_refresh(sizeof(head_t) + kl);
+		//add key end with '\0'
+		h->set_key(from->get_key(), kl);
 		h->t = t;
-		h->kl = kl;
 
-		add_node(h->get_key(), off);
+		add_node(h->get_key(), h.offset);
 	}
 
 	void grow(size_t size) {
@@ -1752,7 +1717,6 @@ protected:
 
 private:
 	data_t* data;
-	//head_t* h;
 	head_ptr_t h;
 
 	size_t ph;
@@ -1923,7 +1887,7 @@ private:
 						if (ch == parser::json_key_symbol::str) {
 							//push head
 							const char* b = js.begin;
-							json_value_t::push_head(json_value_t::type_flag_t::pre_t, b, (length_t)parser::skip_str(js));
+							json_value_t::push_head_0(json_value_t::type_flag_t::pre_t, b, (length_t)parser::skip_str(js));
 
 							//check key_value separator
 							parser::skip_space(js);
