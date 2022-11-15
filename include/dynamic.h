@@ -411,22 +411,34 @@ public:
 	{
 		data_t* ptr = nullptr;
 		size_t offset = 0;
+		size_t poffset = 0;
 		offset_ptr() {
 		}
 		offset_ptr(data_t* p) {
 			ptr = p;
 			offset = p->size();
+			poffset = offset;
 		}
 		offset_ptr(data_t* p, size_t o) {
 			ptr = p;
 			offset = o;
+			poffset = o;
+		}
+		offset_ptr(data_t* p, size_t o, size_t po) {
+			ptr = p;
+			offset = o;
+			poffset = po;
 		}
 		offset_ptr(const offset_ptr<PTR>& l) {
 			ptr = l.ptr;
 			offset = l.offset;
+			poffset = l.poffset;
 		}
 		inline void update(size_t off) {
 			offset = off;
+		}
+		inline void updatep(size_t off) {
+			poffset = off;
 		}
 		inline void update(data_t* p, size_t o) {
 			ptr = p;
@@ -444,24 +456,27 @@ public:
 		inline bool operator == (nullptr_t p) const {
 			return ptr == p;
 		}
-		inline operator bool()const noexcept {
+		/*inline operator bool()const noexcept {
 			return ptr;
-		}
-		inline operator const char* ()const noexcept {
-			return (const char*)(ptr->data() + offset);
-		}
-		inline operator PTR* ()const noexcept {
-			return (PTR*)(ptr->data() + offset);
-		}
+		}*/
+		//inline operator const char* ()const noexcept {
+		//	return (const char*)(ptr->data() + offset);
+		//}
+		//inline operator PTR* ()const noexcept {
+		//	return (PTR*)(ptr->data() + offset);
+		//}
 		inline PTR* operator -> () const {
 			return (PTR*)(ptr->data() + offset);
 		}
 		inline void refresh() {
 			offset = ptr->size();
 		}
+		inline void grow(size_t len) {
+			ptr->resize(ptr->size() + len);
+		}
 		inline void grow_refresh(size_t len) {
 			offset = ptr->size();
-			ptr->resize(offset + len);
+			grow(len);
 		}
 	};
 
@@ -475,7 +490,7 @@ protected:
 		//! next node offset
 		next_t n;
 
-		//next_t p;
+		next_t p;
 
 		//! t == arr_t or obj_t -> cl = child offset
 		//  t == num_t -> cl = sub_type (num_int_t or num_double_t)
@@ -597,11 +612,45 @@ public:
 		h = head_ptr_t(data, 0);
 		push_head_init();
 
-		ph = 0;
-
 		hash_table = new hash_table_t();
 		link_table = new link_table_t();
 		hash_table->resize(61);
+	}
+
+	json_value(const json_value& o) {
+		data = o.data;
+		h = o.h;
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+	}
+
+	json_value(const head_ptr_t& h, const json_value& o) {
+		data = o.data;
+		this->h = h;
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+	}
+
+	template<class K>
+	json_value(json_value& o, K key) {
+		data = o.data;
+		h = o.h;
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+
+		push_head_nofind(type_flag_t::pre_t, key);
+		link_node();
+	}
+
+	template<class K>
+	json_value(json_value& o, size_t ph, K key) {
+		data = o.data;
+		h = o.h;
+		hash_table = o.hash_table;
+		link_table = o.link_table;
+		this->h.poffset = ph;
+		push_head_nofind(type_flag_t::pre_t, key);
+		link_node();
 	}
 
 	json_value(const char* key) {
@@ -623,7 +672,6 @@ public:
 		update_head(0);
 		h = head_ptr_t(data, 0);
 
-		ph = 0;
 
 		hash_table = new hash_table_t(TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
 		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
@@ -635,8 +683,6 @@ public:
 		data->reserve(pack->_data_count);
 		update_head(0);
 		h = head_ptr_t(data, 0);
-
-		ph = 0;
 		hash_table = new hash_table_t(TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
 		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
 		hash_table->reserve(pack->_hash_count);
@@ -692,9 +738,10 @@ public:
 	}
 
 	//! get object value
-	json_value operator [] (const char* key) {
+	template<class K>
+	json_value operator [] (K key) {
 
-		if (key && h) {
+		if (key) {
 			// set this head as obj_t
 			if (h->t == type_flag_t::pre_t) {
 				h->t = type_flag_t::obj_t;
@@ -704,15 +751,16 @@ public:
 				// dont find the head -> add this key
 				if (hash_node* node = find_node(key)) {
 					head_ptr_t th(data, node->value_off);
-					if (th->t == type_flag_t::obj_t)
-						return json_value(*this, th, node->value_off);
-					else
-						return json_value(*this, th, ph);
+					if (th->t == type_flag_t::obj_t) {
+						th.poffset = node->value_off;
+						return json_value(th , *this);
+					}
+					else {
+						th.poffset = h.poffset;
+						return json_value(th , *this);
+					}
 				}
 
-				if (data->size() == 0) {
-					push_head(type_flag_t::obj_t);
-				}
 				return json_value(*this, key);
 			}
 		}
@@ -721,21 +769,42 @@ public:
 
 	//! get arrray value
 	json_value operator [] (int index) {
+		if (h->t == type_flag_t::pre_t) {
+			h->t = type_flag_t::obj_t;
+			return json_value(*this, h.offset, index);
+		}
 		if (h->t == type_flag_t::obj_t) {
 			if (hash_node* node = find_node(index)) {
 				head_ptr_t th(data, node->value_off);
-				if (th->t == type_flag_t::obj_t)
-					return json_value(*this, th, node->value_off);
-				else
-					return json_value(*this, th, ph);
+				if (th->t == type_flag_t::obj_t) {
+					th.poffset = node->value_off;
+					return json_value(th, *this);
+				}
+				else {
+					th.poffset = h.poffset;
+					return json_value(th , *this);
+				}
 			}
+
+			return json_value(*this, index);
+		}
+		if (h->t == type_flag_t::arr_t) {
+			head_t* th = get_index_head(index);
+			if (th) {
+			/*	head_ptr_t thh(data);
+				thh = h;*/
+				h = th;
+				return *this;
+			}
+			else
+				return *this;
 		}
 
 		if (index >= 0) {
 			// set this head as obj_t
 			if (h->t == type_flag_t::pre_t) {
 				h->t = type_flag_t::arr_t;
-				return json_value(*this, h.offset);
+				//return json_value(*this, h.offset);
 			}
 			else {
 				// dont find the head -> add this key
@@ -754,17 +823,8 @@ public:
 		return *this;
 	}
 
-	template<class K>
-	json_value operator [] (K index) {
-		if (h->t == type_flag_t::obj_t) {
-			if (hash_node* node = find_node(index)) {
-				head_ptr_t th(data, node->value_off);
-				if (th->t == type_flag_t::obj_t)
-					return json_value(*this, th, node->value_off);
-				else
-					return json_value(*this, th, ph);
-			}
-		}
+	json_value as_arr() {
+		h->t = type_flag_t::arr_t;
 		return *this;
 	}
 
@@ -777,7 +837,7 @@ public:
 		while (h->t == type_flag_t::del_t)
 			update_head(h->n);
 		if ((h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) && h->cl) {
-			iter_stack->push({ true, (int)((const char*)h - data->data()) });
+			iter_stack->push({ true, (int)h.offset });
 			update_head(h->cl);
 			return false;
 		}
@@ -825,68 +885,63 @@ public:
 	void operator = (N num) {
 
 		static_assert(is_arithmetic<N>::value != 0, "Must be arithmetic type");
-		if (h) {
-			if (h->t == type_flag_t::num_t)
-				h->set_num(num);
-			else if (h->t == type_flag_t::pre_t) {
-				push_num(template_param<N>()) = num;
-			}
-			else if (h->t == type_flag_t::emp_t) {
-				push_head(type_flag_t::num_t);
-				push_num(template_param<N>()) = num;
-			}
-			else {
-				h->t = type_flag_t::del_t;
-				push_head_from(type_flag_t::num_t, h);
-				set_next_next();
-				push_num(template_param<N>()) = num;
-			}
+		if (h->t == type_flag_t::num_t)
+			h->set_num(num);
+		else if (h->t == type_flag_t::pre_t) {
+			push_num(template_param<N>()) = num;
+		}
+		else if (h->t == type_flag_t::emp_t) {
+			push_head(type_flag_t::num_t);
+			push_num(template_param<N>()) = num;
+		}
+		else {
+			h->t = type_flag_t::del_t;
+			push_head_from(type_flag_t::num_t, h);
+			link_node();
+			push_num(template_param<N>()) = num;
 		}
 	}
 
 	//! assign bool
 	void operator = (bool num) {
 
-		if (h) {
-			if (h->t == type_flag_t::boo_t)
-				h->set_num(num);
-			else if (h->t == type_flag_t::pre_t) {
-				push_num(template_param<bool>()) = num;
-				h->cl = 0;
-				h->t = type_flag_t::boo_t;
-			}
-			else if (h->t == type_flag_t::emp_t) {
-				push_head(type_flag_t::boo_t);
-				push_num(template_param<bool>()) = num;
-			}
-			else {
-				h->t = type_flag_t::del_t;
-				push_head_from(type_flag_t::boo_t, h);
-				set_next_next();
-				push_num(template_param<bool>()) = num;
-			}
+		if (h->t == type_flag_t::boo_t)
+			h->set_num(num);
+		else if (h->t == type_flag_t::pre_t) {
+			push_num(template_param<bool>()) = num;
+			h->cl = 0;
+			h->t = type_flag_t::boo_t;
+		}
+		else if (h->t == type_flag_t::emp_t) {
+			push_head(type_flag_t::boo_t);
+			push_num(template_param<bool>()) = num;
+		}
+		else {
+			h->t = type_flag_t::del_t;
+			push_head_from(type_flag_t::boo_t, h);
+			link_node();
+			push_num(template_param<bool>()) = num;
 		}
 	}
 
 	//! assign null
 	void operator = (nullptr_t null) {
 
-		if (h) {
-			if (h->t == type_flag_t::pre_t || h->t == type_flag_t::emp_t) {
-				h->t = type_flag_t::nul_t;
-			}
-			else {
-				h->t = type_flag_t::del_t;
-				set_next_next();
-				push_head(type_flag_t::nul_t);
-			}
+		if (h->t == type_flag_t::pre_t || h->t == type_flag_t::emp_t) {
+			h->t = type_flag_t::nul_t;
 		}
+		else {
+			h->t = type_flag_t::del_t;
+			link_node();
+			push_head(type_flag_t::nul_t);
+		}
+
 	}
 
 	//! assign a string
 	void operator = (const char* str) {
 
-		if (h && str) {
+		if ( str) {
 			length_t len = (length_t)strlen(str);
 			if (h->t == type_flag_t::str_t) {
 				if (len <= h->cl) {
@@ -897,7 +952,7 @@ public:
 					h->t = type_flag_t::del_t;
 					push_head_from(type_flag_t::str_t, h);
 					h->cl = len;
-					set_next_next();
+					link_node();
 					push_str(str, len);
 				}
 			}
@@ -921,7 +976,7 @@ public:
 				h->t = type_flag_t::del_t;
 				push_head_from(type_flag_t::str_t, h);
 				h->cl = len;
-				set_next_next();
+				link_node();
 				push_str(str, len);
 			}
 		}
@@ -932,7 +987,7 @@ public:
 		size_t off = data->size();
 		size_t kl = type_len(key);
 		size_t vl = type_len(val);
-		data->resize(off + sizeof(head_t) + kl + vl);
+		h.grow(sizeof(head_t) + kl + vl);
 		head_t* th = (head_t*)(data->data() + off);
 		th->kl = kl;
 		th->t = val_type(val);
@@ -945,6 +1000,22 @@ public:
 		h->t = type_flag_t::obj_t;
 
 		add_node_nofind(key, off);
+	}
+
+	template<class V>
+	void push_back(V val) {
+		size_t off = data->size();
+		size_t vl = type_len(val);
+		h.grow(sizeof(head_t) + vl);
+		head_t* th = (head_t*)(data->data() + off);
+		th->t = val_type(val);
+		th->cl = vl;
+		th->kl = 0;
+		th->set_val(val, vl);
+
+		th->n = h->cl;
+		h->cl = off;
+		h->t = type_flag_t::arr_t;
 	}
 
 	//! get number
@@ -1014,10 +1085,8 @@ public:
 				when insert a new value the memery may be use again.
 	*/
 	void erase() {
+		h->t = type_flag_t::del_t;
 
-		if (h) {
-			h->t = type_flag_t::del_t;
-		}
 	}
 
 	//! find a key
@@ -1163,9 +1232,9 @@ public:
 		str.resize(0);
 		str.reserve(data->size());
 		json_stack stack;
-		head_t* th = h;
+		head_ptr_t th = h;
 
-		while (th) {
+		while (1) {
 			if (th->t != type_flag_t::del_t) {
 				if (stack.size() && stack.top().is_obj) {
 					if (th->kl) {
@@ -1181,7 +1250,7 @@ public:
 				if (th->t == type_flag_t::obj_t) {
 					if (th->cl) {
 						str += "{";
-						stack.push({ true,(int)((const char*)th - data->data()) });
+						stack.push({ true,(int)th.offset });
 						th = (head_t*)(data->data() + th->cl);
 						continue;
 					}
@@ -1194,7 +1263,7 @@ public:
 				else if (th->t == type_flag_t::arr_t) {
 					if (th->cl) {
 						str += "[";
-						stack.push({ false,(int)((const char*)th - data->data()) });
+						stack.push({ false, (int)th.offset });
 						th = (head_t*)(data->data() + th->cl);
 						continue;
 					}
@@ -1254,76 +1323,25 @@ public:
 		data->swap(*jv.data);
 	}
 
-	json_value(const json_value& o) {
-		data = o.data;
-		h = o.h;
-		hash_table = o.hash_table;
-		link_table = o.link_table;
-		ph = o.ph;
-	}
-
-	json_value(const json_value& o, const head_ptr_t& h, size_t ph) {
-		data = o.data;
-		this->h = h;
-		hash_table = o.hash_table;
-		link_table = o.link_table;
-		this->ph = ph;
-	}
-
-	json_value(json_value& o, const head_ptr_t& th, const char* key) {
-		data = o.data;
-		h = o.h;
-		hash_table = o.hash_table;
-		link_table = o.link_table;
-		ph = o.ph;
-		if (th == nullptr) {
-			ph = get_off();
-			push_head_nofind(type_flag_t::pre_t, key);
-		}
-		else {
-			set_next_next();
-			push_head_nofind(type_flag_t::pre_t, key);
-		}
-	}
-
-	json_value(json_value& o, const char* key) {
-		data = o.data;
-		h = o.h;
-		hash_table = o.hash_table;
-		link_table = o.link_table;
-		ph = get_off();
-
-		push_head_nofind(type_flag_t::pre_t, key);
-		set_next_next();
-	}
-
-	json_value(json_value& o, size_t ph, const char* key) {
-		data = o.data;
-		h = o.h;
-		hash_table = o.hash_table;
-		link_table = o.link_table;
-		this->ph = ph;
-		push_head_nofind(type_flag_t::pre_t, key);
-		set_next_next();
-	}
-
-	json_value(json_value& o, size_t ph) {
-		data = o.data;
-		h = o.h;
-		hash_table = o.hash_table;
-		link_table = o.link_table;
-		this->ph = ph;
-		push_head(type_flag_t::pre_t);
-		set_next_next();
-	}
-
-	void set_next_next() {
-		head_t* th = (head_t*)(data->data() + ph);
+	void link_node() {
+		head_t* th = (head_t*)(data->data() + h.poffset);
 		h->n = th->cl;
+
+		head_t* pth = (head_t*)(data->data() + h->n);
+		pth->p = h.offset;
+
 		th->cl = h.offset;
 	}
 
-	void hash_rebuild() {
+	void unlink_node() {
+		head_t* nth = (head_t*)(data->data() + h->n);
+		head_t* pth = (head_t*)(data->data() + h->p);
+
+		pth->n = h->n;
+		nth->p = h->ptr;
+	}
+
+	void hash_resize() {
 		if (link_table->size() + 1 > hash_table->size()) {
 			hash_table_t t_hash_table(move(*hash_table));
 			link_table_t t_link_table(move(*link_table));
@@ -1347,31 +1365,31 @@ public:
 	}
 
 	void add_node(const char* key, size_t value_off) {
-		hash_rebuild();
+		hash_resize();
 		hash<no_copy_string> h;
 		size_t hk = h(key);
 		if (hash_node* node = find_node(hk, key)) {
 			node->value_off = value_off;
 			return;
 		}
-		hash_node hh = { 0, ph, value_off };
+		hash_node hh = { 0, this->h.poffset, value_off };
 		add_node(hk, hh);
 	}
 
 	void add_node_nofind(const char* key, size_t value_off) {
-		hash_rebuild();
+		hash_resize();
 		hash<no_copy_string> h;
 		size_t hk = h(key);
-		hash_node hh = { 0, ph, value_off };
+		hash_node hh = { 0, this->h.poffset, value_off };
 		add_node(hk, hh);
 	}
 
 	template<class K>
 	void add_node_nofind(K key, size_t value_off) {
-		hash_rebuild();
+		hash_resize();
 		hash<K> h;
 		size_t hk = h(key);
-		hash_node hh = {0, ph, value_off};
+		hash_node hh = {0, this->h.poffset, value_off};
 		add_node(hk,hh);
 	}
 
@@ -1395,7 +1413,7 @@ public:
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
-			if (ph != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t) {
+			if (h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t) {
 				next = next_node.next;
 				continue;
 			}
@@ -1414,7 +1432,7 @@ public:
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
-			if (ph != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t) {
+			if (this->h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t) {
 				next = next_node.next;
 				continue;
 			}
@@ -1430,29 +1448,26 @@ private:
 	json_value& operator = (const json_value&) = delete;
 
 	head_t* goto_next_usable_head() {
-		if (h) {
-			const char* begin = data->data();
-			// point to the child begin
-			head_t* th = h;
-			while (th) {
-				// if this node was deleted -> jump
-				if (th->t != type_flag_t::del_t) {
-					h = th;
-					return th;
-				}
-				// return the end head
-				if (!th->n)
-					return th;
-				// point to the brother head
-				th = (head_t*)(begin + th->n);
+		const char* begin = data->data();
+		// point to the child begin
+		head_t* th = h;
+		while (th) {
+			// if this node was deleted -> jump
+			if (th->t != type_flag_t::del_t) {
+				h = th;
+				return th;
 			}
-			return th;
+			// return the end head
+			if (!th->n)
+				return th;
+			// point to the brother head
+			th = (head_t*)(begin + th->n);
 		}
-		return nullptr;
+		return th;
 	}
 
 	length_t count_size() {
-		if (h && h->cl) {
+		if (h->cl) {
 			// point to the child begin
 			head_t* th = (head_t*)(data->data() + h->cl);
 			length_t i = 0;
@@ -1473,7 +1488,7 @@ private:
 		return 0;
 	}
 	head_t* get_index_head(length_t index) {
-		if (h && h->t == type_flag_t::arr_t) {
+		if (h->t == type_flag_t::arr_t) {
 			const char* begin = data->data();
 			// point to the child begin
 
@@ -1484,7 +1499,7 @@ private:
 				if (th->t != type_flag_t::del_t) {
 					// if find the index -> reset the head
 					if (i == index) {
-						h = th;
+						//h = th;
 						return th;
 					}
 					i++;
@@ -1502,7 +1517,7 @@ private:
 	}
 
 	head_t* get_key_head(const char* key, bool& is_find) {
-		if (h && h->t == type_flag_t::obj_t) {
+		if (h->t == type_flag_t::obj_t) {
 			const char* begin = data->data();
 			// point to the child begin
 			head_t* th = (head_t*)(begin + h->cl);
@@ -1528,7 +1543,7 @@ private:
 	}
 
 	head_t* get_end_head() {
-		if (h && h->t == type_flag_t::obj_t) {
+		if (h->t == type_flag_t::obj_t) {
 			const char* begin = data->data();
 			// point to the child begin
 			head_t* th = (head_t*)(begin + h->cl);
@@ -1542,7 +1557,7 @@ private:
 	}
 
 	bool find_key(const char* key) {
-		if (h && h->t == type_flag_t::obj_t) {
+		if (h->t == type_flag_t::obj_t) {
 			const char* begin = data->data();
 			// point to the child begin
 			head_t* th = (head_t*)(begin + h->cl);
@@ -1628,7 +1643,8 @@ protected:
 		add_node(key, h.offset);
 	}
 
-	void push_head_nofind(flag_t t, const char* key) {
+	template<class K>
+	void push_head_nofind(flag_t t, K key) {
 		//add head
 		auto kl = type_len(key);
 		h.grow_refresh(sizeof(head_t) + kl);
@@ -1659,7 +1675,7 @@ protected:
 	}
 
 	void set_ph() {
-		ph = get_off();
+		h.poffset = get_off();
 	}
 
 	void push_head_from(flag_t t, head_ptr_t from) {
@@ -1718,8 +1734,6 @@ protected:
 private:
 	data_t* data;
 	head_ptr_t h;
-
-	size_t ph;
 
 	hash_table_t* hash_table;
 	link_table_t* link_table;
