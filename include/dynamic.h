@@ -39,23 +39,25 @@ value ->|-------------|
 			.......
 */
 
+struct info
+{
+	bool is_obj;
+	int off;
+};
+
 //! Array - based stack structure
+template<class T = info>
 class json_stack {
 public:
 	//! Used to record stack information
-	struct info
-	{
-		bool is_obj;
-		int off;
-	};
-	vector<info> vec;
+	vector<T> vec;
 	json_stack() {
 		vec.reserve(6);
 	}
-	void push(const info& in) {
+	void push(const T& in) {
 		vec.emplace_back(in);
 	}
-	info& top() {
+	T& top() {
 		return vec.back();
 	}
 	void pop() {
@@ -99,7 +101,7 @@ public:
 	}
 private:
 	T* p;
-	json_stack iter_stack;
+	json_stack<info> iter_stack;
 	bool end;
 	int begin;
 };
@@ -535,13 +537,6 @@ protected:
 			this->kl = MAX_KEY_LEN(kl);
 		}
 
-		inline void set_key_0(const char* key, size_t kl) {
-			char* tk = (char*)this + head_size();
-			memcpy((void*)tk, key, kl);
-			*(tk + kl) = '\0';
-			this->kl = MAX_KEY_LEN(kl + 1);
-		}
-
 		template<class K>
 		inline void set_key(K key) {
 			*(K*)get_key() = key;
@@ -562,12 +557,12 @@ protected:
 		inline void set_val(N num, size_t vl = 0) {
 			*(N*)(get_val()) = num;
 		}
-
-		inline void set_val(const char* str, length_t len) {
-			memcpy(get_val(), str, len);
+		template<>
+		inline void set_val<const char*>(const char* str, size_t len) {
+			memcpy((void*)get_val(), str, (size_t)len);
 		}
 
-		inline char* get_val() {
+		inline const char* get_val() {
 			return CHECK_MAX_KEY_LEN(kl) ? (char*)this + head_size() + kl : (char*)this + head_size() + strlen(get_key()) + 1;
 		}
 
@@ -577,7 +572,7 @@ protected:
 		}
 
 		void set_string(const char* str, length_t len) {
-			memcpy(get_val(), str, len);
+			memcpy((void*)get_val(), str, len);
 		}
 
 		template<class N>
@@ -724,7 +719,7 @@ public:
 
 	//! the begin json_iteratorator
 	json_iterator<json_value> begin() {
-		length_t off = get_off();
+		length_t off = h.offset;
 		if (h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) {
 			update_head(h->cl);
 		}
@@ -791,35 +786,15 @@ public:
 		if (h->t == type_flag_t::arr_t) {
 			head_t* th = get_index_head(index);
 			if (th) {
-			/*	head_ptr_t thh(data);
-				thh = h;*/
-				h = th;
-				return *this;
+				head_ptr_t thh(data);
+				thh = th;
+				thh.poffset = h.offset;
+				return json_value(thh, *this);
 			}
 			else
 				return *this;
 		}
 
-		if (index >= 0) {
-			// set this head as obj_t
-			if (h->t == type_flag_t::pre_t) {
-				h->t = type_flag_t::arr_t;
-				//return json_value(*this, h.offset);
-			}
-			else {
-				// dont find the head -> add this key
-				head_t* th = get_index_head(index);
-				if (th == nullptr) {
-					push_head(type_flag_t::arr_t);
-					h->cl = (length_t)data->size();
-					push_head(type_flag_t::pre_t);
-				}
-				else if (h != th) {
-					th->n = (next_t)data->size();
-					push_head(type_flag_t::pre_t);
-				}
-			}
-		}
 		return *this;
 	}
 
@@ -832,7 +807,7 @@ public:
 	/*!
 		\return	If this is the last value return true else return false
 	*/
-	bool next(json_stack* iter_stack, length_t begin = 0) {
+	bool next(json_stack<>* iter_stack, length_t begin = 0) {
 
 		while (h->t == type_flag_t::del_t)
 			update_head(h->n);
@@ -995,8 +970,17 @@ public:
 		th->set_key(key, kl);
 		th->set_val(val, vl);
 
-		th->n = h->cl;
-		h->cl = off;
+		if (!h->cl) {
+			th->p = off;
+			h->cl = off;
+		}
+		else {
+			head_t* fth = (head_t*)(data->data() + h->cl);
+			head_t* lth = (head_t*)(data->data() + fth->p);
+			lth->n = off;
+			th->p = fth->p;
+			fth->p = off;
+		}
 		h->t = type_flag_t::obj_t;
 
 		add_node_nofind(key, off);
@@ -1013,10 +997,20 @@ public:
 		th->kl = 0;
 		th->set_val(val, vl);
 
-		th->n = h->cl;
-		h->cl = off;
+		if (!h->cl) {
+			th->p = off;
+			h->cl = off;
+		}
+		else {
+			head_t* fth = (head_t*)(data->data() + h->cl);
+			head_t* lth = (head_t*)(data->data() + fth->p);
+			lth->n = off;
+			th->p = fth->p;
+			fth->p = off;
+		}
 		h->t = type_flag_t::arr_t;
 	}
+
 
 	//! get number
 	template<class Num>
@@ -1086,7 +1080,28 @@ public:
 	*/
 	void erase() {
 		h->t = type_flag_t::del_t;
-
+		head_t* path = (head_t*)(data->data() + h.poffset);
+		if (h.offset == h->p) {
+			path->cl = 0;
+		}
+		else {
+			if (h->n) {
+				head_t* nth = (head_t*)(data->data() + h->n);
+				if (path->cl == h.offset) {
+					path->cl = h->n;
+					nth->p = h->p;
+				}
+				else {
+					head_t* pth = (head_t*)(data->data() + h->p);
+					pth->n = h->n;
+					nth->p = h->p;
+				}
+			}
+			else {
+				head_t* pth = (head_t*)(data->data() + h->p);
+				pth->n = 0;
+			}
+		}
 	}
 
 	//! find a key
@@ -1231,7 +1246,7 @@ public:
 
 		str.resize(0);
 		str.reserve(data->size());
-		json_stack stack;
+		json_stack<> stack;
 		head_ptr_t th = h;
 
 		while (1) {
@@ -1325,12 +1340,17 @@ public:
 
 	void link_node() {
 		head_t* th = (head_t*)(data->data() + h.poffset);
-		h->n = th->cl;
-
-		head_t* pth = (head_t*)(data->data() + h->n);
-		pth->p = h.offset;
-
-		th->cl = h.offset;
+		if (!th->cl) {
+			h->p = h.offset;
+			th->cl = h.offset;
+		}
+		else {
+			head_t* fth = (head_t*)(data->data() + th->cl);
+			head_t* lth = (head_t*)(data->data() + fth->p);
+			lth->n = h.offset;
+			h->p = fth->p;
+			fth->p = h.offset;
+		}
 	}
 
 	void unlink_node() {
@@ -1487,6 +1507,7 @@ private:
 		}
 		return 0;
 	}
+
 	head_t* get_index_head(length_t index) {
 		if (h->t == type_flag_t::arr_t) {
 			const char* begin = data->data();
@@ -1507,7 +1528,7 @@ private:
 				// return the end head
 				if (!th->n)
 					return th;
-				// point to the brother head
+					// point to the brother head
 				th = (head_t*)(begin + th->n);
 
 			}
@@ -1595,6 +1616,10 @@ protected:
 	void pre_allocate(size_t base_size) {
 		data->reserve(base_size + base_size / 3);
 		data->resize(0);
+
+		link_table->resize(0);
+		hash_table->clear();
+		hash_table->resize(61);
 	}
 
 	json_value& to_off(int off) {
@@ -1602,45 +1627,49 @@ protected:
 		return *this;
 	}
 
-	inline void set_next() {
-		h->n = (next_t)data->size();
-	}
-
-	inline void update_cl() {
-		h->cl = (length_t)data->size();
-	}
-
-	inline void update_cl(length_t length) {
-		h->cl = length;
-	}
-
-	inline void update_cl0() {
-		h->cl = 0;
-	}
-
 	inline flag_t get_flag() {
 		return h->t;
 	}
 
-	inline length_t get_off() {
-		return h.offset;
-	}
-
 	void push_head(flag_t t) {
 		//add head
-		h.grow_refresh(sizeof(head_t));
-		h->t = t;
+		if (h->t == type_flag_t::pre_t) {
+			h->t = t;
+		}
+		else {
+			h.grow_refresh(sizeof(head_t));
+			h->t = t;
+		}
 	}
 
-	void push_head_0(flag_t t, const char* key, length_t kl) {
+	void push_head2(flag_t t) {
 		//add head
-		h.grow_refresh(sizeof(head_t) + kl + 1);
+		size_t poff = h.offset;
+		if (h->t == type_flag_t::pre_t) {
+			h->t = t;
+		}
+		else {
+			h.grow_refresh(sizeof(head_t));
+			h->t = t;
+			h.poffset = poff;
+			link_node();
+		}
+	}
+
+	void push_head_nofind2(flag_t t, const char* key) {
+		//add head
+		size_t poff = h.offset;
+		auto kl = type_len(key);
+		if(h->t != type_flag_t::pre_t)
+			h.grow_refresh(sizeof(head_t) + kl);
 		//add key end with '\0'
-		h->set_key_0(key, kl);
+		h->set_key(key, kl);
 
 		h->t = t;
+		h.poffset = poff;
 
-		add_node(key, h.offset);
+		add_node_nofind(key, h.offset);
+		link_node();
 	}
 
 	template<class K>
@@ -1674,10 +1703,6 @@ protected:
 		h->t = f;
 	}
 
-	void set_ph() {
-		h.poffset = get_off();
-	}
-
 	void push_head_from(flag_t t, head_ptr_t from) {
 		//add head
 		//update_head(data->size());
@@ -1688,12 +1713,6 @@ protected:
 		h->t = t;
 
 		add_node(h->get_key(), h.offset);
-	}
-
-	void grow(size_t size) {
-		length_t off = length_t(data->size());
-		data->resize(data->size() + size);
-		update_head(off);
 	}
 
 	inline void push_key(const char* str, length_t len) {
@@ -1730,10 +1749,11 @@ protected:
 		data = jv.data;
 		h = jv.h;
 	}
+protected:
+	head_ptr_t h;
 
 private:
 	data_t* data;
-	head_ptr_t h;
 
 	hash_table_t* hash_table;
 	link_table_t* link_table;
@@ -1754,45 +1774,44 @@ public:
 		json_value_t::release();
 	}
 private:
-	bool parse_string(json_stream& js) {
+	bool parse_string(string &data, json_stream& js) {
 		parser::get_next(js);
-		json_value_t::set_flag(json_value_t::type_flag_t::str_t);
-		int head_off = json_value_t::get_off();
-		size_t end = json_value_t::get_data().size();
-		if (!parser::parse_str(json_value_t::get_data(), js)) {
+		if (!parser::parse_str(data, js)) {
 			ERROR_RETURT(js);
 		}
-		json_value_t::update_head(head_off);
-		json_value_t::update_cl(length_t(json_value_t::get_data().size() - end));
-		json_value_t::get_data() += '\0';
 		return true;
 	}
 
-	bool parse_number(json_stream& js) {
+	bool parse_number(string* key, json_stream& js) {
 		if (char ch = *js.begin) {
 			if (ch == 'f' || ch == 't') {
-				if (!parser::parse_bool(json_value_t::push_num(template_param<bool>()), js)) {
+				bool val;
+				if (!parser::parse_bool(val, js)) {
 					ERROR_RETURT(js);
 				}
-				json_value_t::set_flag(json_value_t::type_flag_t::boo_t);
+				push_kv(key, val);
 			}
 			else if (ch == 'n') {
 				if (!parser::is_null(js)) {
 					ERROR_RETURT(js);
 				}
-				json_value_t::set_flag(json_value_t::type_flag_t::nul_t);
+				push_kv(key, nullptr);
 			}
 			else {
 				char res = parser::is_double(js);
 				if (res == -1) {
-					if (!parser::unserialize(&json_value_t::push_num(template_param<double>()), js)) {
+					double val;
+					if (!parser::unserialize(&val, js)) {
 						ERROR_RETURT(js);
 					}
+					push_kv(key, val);
 				}
 				else if (res == 1) {
-					if (!parser::unserialize(&json_value_t::push_num(template_param<uint64_t>()), js)) {
+					uint64_t val;
+					if (!parser::unserialize(&val, js)) {
 						ERROR_RETURT(js);
 					}
+					push_kv(key, val);
 				}
 				else {
 					ERROR_RETURT(js);
@@ -1802,6 +1821,54 @@ private:
 		return true;
 	}
 
+	bool parse_number(json_stream& js) {
+		if (char ch = *js.begin) {
+			if (ch == 'f' || ch == 't') {
+				bool val;
+				if (!parser::parse_bool(val, js)) {
+					ERROR_RETURT(js);
+				}
+				this->operator=(val);
+			}
+			else if (ch == 'n') {
+				if (!parser::is_null(js)) {
+					ERROR_RETURT(js);
+				}
+				this->operator=(nullptr);
+			}
+			else {
+				char res = parser::is_double(js);
+				if (res == -1) {
+					double val;
+					if (!parser::unserialize(&val, js)) {
+						ERROR_RETURT(js);
+					}
+					this->operator=(val);
+				}
+				else if (res == 1) {
+					uint64_t val;
+					if (!parser::unserialize(&val, js)) {
+						ERROR_RETURT(js);
+					}
+					this->operator=(val);
+				}
+				else {
+					ERROR_RETURT(js);
+				}
+			}
+		}
+		return true;
+	}
+
+	template<class V>
+	void push_kv(string* key, V val) {
+		if (key) {
+			json_value_t::insert(key->c_str(), val);
+		}
+		else {
+			json_value_t::push_back(val);
+		}
+	}
 
 	//! Non recursive implementation, so there is no limit on the depth, it is up on your memory size
 	/*! \brief 	obj:{ -> "key" -> : -> value -> }
@@ -1809,14 +1876,16 @@ private:
 		\return a reference of json_value
 	*/
 	bool parse(json_stream& js) {
-		json_stack stack;
+		json_stack<json_value_t::head_ptr_t> stack;
 		parser::skip_space(js);
 
-
+		json_value_t::update_head(0);
 		if (*js.begin == parser::json_key_symbol::str) {
-			json_value_t::push_head(json_value_t::type_flag_t::pre_t);
-			if (!parse_string(js))
+			string str;
+			if (!parse_string(str, js))
 				return false;
+			this->operator=(str.c_str());
+
 			parser::skip_space(js);
 			if (parser::get_cur_and_next(js) != '\0') {
 				ERROR_RETURT(js);
@@ -1829,46 +1898,26 @@ private:
 				//--------------------------------------------------------
 				parser::skip_space(js);
 				// , end and begin token
-				if (ch == parser::json_key_symbol::next_key_value) {
-					json_value_t::set_next();
-				}
-				else if (ch == parser::json_key_symbol::object_begin) {
-					if (json_value_t::get_flag() == json_value_t::type_flag_t::pre_t) {
-						json_value_t::set_flag(json_value_t::type_flag_t::obj_t);
-						json_value_t::update_cl();
-						//set_ph();
-					}
-					else {
-						json_value_t::set_ph();
-						json_value_t::push_head(json_value_t::type_flag_t::obj_t);
-						json_value_t::update_cl();
-					}
-					stack.push({ true,(int)json_value_t::get_off() });
+				if (ch == parser::json_key_symbol::object_begin) {
+					stack.push(json_value_t::h);
+					json_value_t::push_head2(json_value_t::type_flag_t::obj_t);
 				}
 				else if (ch == parser::json_key_symbol::array_begin) {
 					//[], empty array
 					if (*js.begin == parser::json_key_symbol::array_end) {
-						parser::get_next(js);
 						parser::skip_space(js);
-						json_value_t::set_flag(json_value_t::type_flag_t::arr_t);
-						json_value_t::update_cl0();
+						ch = parser::get_cur_and_next(js);
 						continue;
 					}
-					//[x,x,x] and [],[],[]
-					if (json_value_t::get_flag() == json_value_t::type_flag_t::pre_t) {
-						json_value_t::set_flag(json_value_t::type_flag_t::arr_t);
-						json_value_t::update_cl();
-					}
-					else {
-						json_value_t::push_head(json_value_t::type_flag_t::arr_t);
-						json_value_t::update_cl();
-					}
-					stack.push({ false,(int)json_value_t::get_off() });
+					stack.push(json_value_t::h);
+					json_value_t::push_head2(json_value_t::type_flag_t::arr_t);			
 				}
 				else if (ch == parser::json_key_symbol::object_end) {
-					if (stack.size() > 0 && stack.top().is_obj) {
-						json_value_t::update_head(stack.top().off);
+					if (stack.size() > 0 && (stack.top()->t == json_value_t::type_flag_t::obj_t)) {
 						stack.pop();
+						if (stack.size() > 0) {
+							json_value_t::h = stack.top();
+						}
 					}
 					else {
 						ERROR_RETURT(js);
@@ -1877,9 +1926,13 @@ private:
 					continue;
 				}
 				else if (ch == parser::json_key_symbol::array_end) {
-					if (stack.size() > 0 && !stack.top().is_obj) {
-						json_value_t::update_head(stack.top().off);
+					if (stack.size() > 0 && !(stack.top()->t == json_value_t::type_flag_t::obj_t)) {
+						//json_value_t::update_head(stack.top().off);
+						
 						stack.pop();
+						if (stack.size() > 0) {
+							json_value_t::h = stack.top();
+						}
 					}
 					else {
 						ERROR_RETURT(js);
@@ -1895,14 +1948,14 @@ private:
 				//-----------------------------------------------------------
 				//{ "x":x } obj head with key ,or [x,x,x] arr head without key 
 				parser::skip_space(js);
-				if (stack.top().is_obj) {
+				string key;
+				if (stack.top()->t == json_value_t::type_flag_t::obj_t) {
 					if (ch = parser::get_cur_and_next(js)) {
 						//key must start with quote
 						if (ch == parser::json_key_symbol::str) {
 							//push head
 							const char* b = js.begin;
-							json_value_t::push_head_0(json_value_t::type_flag_t::pre_t, b, (length_t)parser::skip_str(js));
-
+							key.assign(b, parser::skip_str(js));
 							//check key_value separator
 							parser::skip_space(js);
 							if (parser::get_cur_and_next(js) != parser::json_key_symbol::key_value_separator) {
@@ -1911,8 +1964,10 @@ private:
 						}
 						//if no value pop stack
 						else if (ch == parser::json_key_symbol::object_end) {
-							json_value_t::update_cl0();
 							stack.pop();
+							if (stack.size() > 0) {
+								json_value_t::h = stack.top();
+							}
 							continue;
 						}
 						else {
@@ -1925,26 +1980,38 @@ private:
 						ERROR_RETURT(js);
 					}
 				}
-				else {
-					json_value_t::push_head(json_value_t::type_flag_t::pre_t);
-				}
 
 				//step 3: parse value
 				//-----------------------------------------------------------
+				string* tkey = stack.top()->t == json_value_t::type_flag_t::obj_t ? &key : nullptr;
 				parser::skip_space(js);
 				if (char ch = *js.begin) {
 					if (ch == parser::json_key_symbol::str) {
-						if (!parse_string(js))
+						string val;
+						if (!parse_string(val, js))
 							return false;
+						push_kv(tkey, val.c_str());
 					}
 					else if (ch == parser::json_key_symbol::object_begin) {
+						if (tkey) {
+							json_value_t::push_head_nofind2(json_value_t::type_flag_t::pre_t, tkey->c_str());
+						}
+						else {
+							json_value_t::push_head2(json_value_t::type_flag_t::pre_t);
+						}
 						continue;
 					}
 					else if (ch == parser::json_key_symbol::array_begin) {
+						if (tkey) {
+							json_value_t::push_head_nofind2(json_value_t::type_flag_t::pre_t, tkey->c_str());
+						}
+						else {
+							json_value_t::push_head2(json_value_t::type_flag_t::pre_t);
+						}
 						continue;
 					}
 					else {
-						if (!parse_number(js))
+						if (!parse_number(tkey, js))
 							return false;
 					}
 				}
@@ -1965,7 +2032,6 @@ private:
 				return true;
 		}
 		else {
-			json_value_t::push_head(json_value_t::type_flag_t::pre_t);
 			if (!parse_number(js))
 				return false;
 			parser::skip_space(js);
@@ -1974,6 +2040,7 @@ private:
 			}
 			return true;
 		}
+		json_value_t::update_head(0);
 		return false;
 	}
 public:
