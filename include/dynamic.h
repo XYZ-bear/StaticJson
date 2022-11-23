@@ -562,8 +562,7 @@ protected:
 			cl = vl;
 		}
 
-		template<>
-		inline void set_val<const char*>(const char* str, size_t len) {
+		inline void set_val(const char* str, size_t len) {
 			memcpy((void*)get_val(), str, (size_t)len);
 			cl = len;
 		}
@@ -1389,8 +1388,6 @@ public:
 							hk = h(th->get_key());
 						}
 						else {
-							//hash<number_t> h;
-							//hk = h(th->get_int_key());
 							hk = th->get_int_key();
 						}
 						add_node(hk, ln);
@@ -1620,7 +1617,7 @@ private:
 		return false;
 	}
 
-protected:
+public:
 	inline void update_head(int off) {
 		h.update(off);
 	}
@@ -1628,6 +1625,9 @@ protected:
 	void pre_allocate(size_t base_size) {
 		data->reserve(base_size + base_size / 3);
 		data->resize(0);
+
+		h = head_ptr_t(data, 0);
+		push_head_init();
 
 		link_table->resize(0);
 		hash_table->clear();
@@ -1891,7 +1891,7 @@ private:
 		\return a reference of json_value
 	*/
 	bool parse(json_stream& js) {
-		json_stack<json_value_t::head_ptr_t> stack;
+		json_stack<typename json_value_t::head_ptr_t> stack;
 		parser::skip_space(js);
 
 		json_value_t::update_head(0);
