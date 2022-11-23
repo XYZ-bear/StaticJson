@@ -534,7 +534,7 @@ protected:
 
 		inline void set_key(const char* key, size_t kl) {
 			memcpy((void*)get_key(), key, kl);
-			this->kl = MAX_KEY_LEN(kl);
+			this->kl = 9;
 		}
 
 		template<class K>
@@ -543,27 +543,37 @@ protected:
 			this->kl = type_len(key);
 		}
 
-		inline void set_key(const char* key) {
-			this->kl = MAX_KEY_LEN(type_len(key));
-			memcpy((void*)get_key(), key, this->kl);
-
+		inline void set_key(const char* key) {	
+			memcpy((void*)get_key(), key, strlen(key) + 1);
+			this->kl = 9;
 		}
 
 		inline const char* get_key() {
 			return (const char*)this + head_size();
 		}
 
+		inline number_t get_int_key() {
+			return *((number_t*)((const char*)this + head_size()));
+		}
+
 		template<class N>
 		inline void set_val(N num, size_t vl = 0) {
 			*(N*)(get_val()) = num;
+			cl = vl;
 		}
+
 		template<>
 		inline void set_val<const char*>(const char* str, size_t len) {
 			memcpy((void*)get_val(), str, (size_t)len);
+			cl = len;
 		}
 
 		inline const char* get_val() {
-			return CHECK_MAX_KEY_LEN(kl) ? (char*)this + head_size() + kl : (char*)this + head_size() + strlen(get_key()) + 1;
+			return kl == 9 ? (char*)this + head_size() + strlen(get_key()) + 1 : (char*)this + head_size() + kl;
+		}
+
+		inline size_t get_kl() {
+			return kl == 9 ? strlen(get_key()) + 1 : kl;
 		}
 
 		template<class N>
@@ -964,7 +974,6 @@ public:
 		size_t vl = type_len(val);
 		h.grow(sizeof(head_t) + kl + vl);
 		head_t* th = (head_t*)(data->data() + off);
-		th->kl = kl;
 		th->t = val_type(val);
 		th->cl = vl;
 		th->set_key(key, kl);
@@ -994,7 +1003,6 @@ public:
 		head_t* th = (head_t*)(data->data() + off);
 		th->t = val_type(val);
 		th->cl = vl;
-		th->kl = 0;
 		th->set_val(val, vl);
 
 		if (!h->cl) {
@@ -1375,8 +1383,16 @@ public:
 					head_t* th = (head_t*)(data->data() + ln.value_off);
 					next = ln.next;
 					if (th->t != type_flag_t::del_t) {
-						hash<no_copy_string> h;
-						size_t hk = h(th->get_key());
+						size_t hk = 0;
+						if (th->kl == 9) {
+							hash<no_copy_string> h;
+							hk = h(th->get_key());
+						}
+						else {
+							//hash<number_t> h;
+							//hk = h(th->get_int_key());
+							hk = th->get_int_key();
+						}
 						add_node(hk, ln);
 					}
 				}
@@ -1407,10 +1423,8 @@ public:
 	template<class K>
 	void add_node_nofind(K key, size_t value_off) {
 		hash_resize();
-		hash<K> h;
-		size_t hk = h(key);
 		hash_node hh = {0, this->h.poffset, value_off};
-		add_node(hk,hh);
+		add_node(key,hh);
 	}
 
 	void add_node(size_t key, hash_node& hn) {
@@ -1444,9 +1458,7 @@ public:
 
 	template<class K>
 	hash_node* find_node(K k) {
-		hash<K> h;
-		size_t hk = h(k);
-
+		size_t hk = k;
 		size_t index = hk % hash_table->size();
 		size_t next = (*hash_table)[index];
 		while (next) {
@@ -1706,10 +1718,13 @@ protected:
 	void push_head_from(flag_t t, head_ptr_t from) {
 		//add head
 		//update_head(data->size());
-		key_t kl = from->kl;
+		key_t kl = from->get_kl();
 		h.grow_refresh(sizeof(head_t) + kl);
 		//add key end with '\0'
-		h->set_key(from->get_key(), kl);
+		if(from->kl == 9)
+			h->set_key(from->get_key());
+		else if(kl)
+			h->set_key(from->get_key(), kl);
 		h->t = t;
 
 		add_node(h->get_key(), h.offset);

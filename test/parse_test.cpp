@@ -1,7 +1,6 @@
 #pragma once
 #include "doctest.h"
 #include "static_json.h"
-#include <tchar.h>
 
 Json(Test6)
 {
