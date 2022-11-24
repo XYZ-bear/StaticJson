@@ -559,7 +559,7 @@ protected:
 		template<class N>
 		inline void set_val(N num, size_t vl = 0) {
 			*(N*)(get_val()) = num;
-			cl = vl;
+			set_num_cl(num);
 		}
 
 		inline void set_val(const char* str, size_t len) {
@@ -604,6 +604,19 @@ protected:
 			if (memcmp(str, get_val(), cl) == 0)
 				return true;
 			return false;
+		}
+
+		template<class N>
+		inline void set_num_cl(N) {
+			cl = type_flag_t::num_int_t;
+		}
+
+		inline void set_num_cl(double) {
+			cl = type_flag_t::num_double_t;
+		}
+
+		inline void set_num_cl(float) {
+			cl = type_flag_t::num_double_t;
 		}
 	};
 
@@ -817,9 +830,6 @@ public:
 		\return	If this is the last value return true else return false
 	*/
 	bool next(json_stack<>* iter_stack, length_t begin = 0) {
-
-		while (h->t == type_flag_t::del_t)
-			update_head(h->n);
 		if ((h->t == type_flag_t::obj_t || h->t == type_flag_t::arr_t) && h->cl) {
 			iter_stack->push({ true, (int)h.offset });
 			update_head(h->cl);
@@ -854,8 +864,6 @@ public:
 	*/
 	bool next_brother(length_t begin = 0) {
 
-		while (h->t == type_flag_t::del_t)
-			update_head(h->n);
 		if (h->n) {
 			update_head(h->n);
 			return false;
@@ -872,17 +880,16 @@ public:
 		if (h->t == type_flag_t::num_t)
 			h->set_num(num);
 		else if (h->t == type_flag_t::pre_t) {
-			push_num(template_param<N>()) = num;
+			push_num(num);
 		}
 		else if (h->t == type_flag_t::emp_t) {
 			push_head(type_flag_t::num_t);
-			push_num(template_param<N>()) = num;
+			push_num(num);
 		}
 		else {
-			h->t = type_flag_t::del_t;
+			erase();
 			push_head_from(type_flag_t::num_t, h);
-			link_node();
-			push_num(template_param<N>()) = num;
+			push_num(num);
 		}
 	}
 
@@ -892,19 +899,18 @@ public:
 		if (h->t == type_flag_t::boo_t)
 			h->set_num(num);
 		else if (h->t == type_flag_t::pre_t) {
-			push_num(template_param<bool>()) = num;
+			push_num(num);
 			h->cl = 0;
 			h->t = type_flag_t::boo_t;
 		}
 		else if (h->t == type_flag_t::emp_t) {
 			push_head(type_flag_t::boo_t);
-			push_num(template_param<bool>()) = num;
+			push_num(num);
 		}
 		else {
-			h->t = type_flag_t::del_t;
+			erase();
 			push_head_from(type_flag_t::boo_t, h);
-			link_node();
-			push_num(template_param<bool>()) = num;
+			push_num(num);
 		}
 	}
 
@@ -915,9 +921,8 @@ public:
 			h->t = type_flag_t::nul_t;
 		}
 		else {
-			h->t = type_flag_t::del_t;
-			link_node();
-			push_head(type_flag_t::nul_t);
+			erase();
+			push_head_from(type_flag_t::nul_t, h);
 		}
 
 	}
@@ -933,10 +938,9 @@ public:
 					h->set_string(str, len + 1);
 				}
 				else {
-					h->t = type_flag_t::del_t;
+					erase();
 					push_head_from(type_flag_t::str_t, h);
 					h->cl = len;
-					link_node();
 					push_str(str, len);
 				}
 			}
@@ -957,10 +961,9 @@ public:
 				h->set_string(str, len + 1);
 			}
 			else {
-				h->t = type_flag_t::del_t;
+				erase();
 				push_head_from(type_flag_t::str_t, h);
 				h->cl = len;
-				link_node();
 				push_str(str, len);
 			}
 		}
@@ -1209,10 +1212,7 @@ public:
 			head_t* th = (head_t*)(begin + h->cl);
 			vh.vec.push_back(h->cl);
 			while (th) {
-				// if this node was deleted -> jump
-				if (th->t != type_flag_t::del_t) {
-					vh.vec.push_back(th->n);
-				}
+				vh.vec.push_back(th->n);
 				// return the end head
 				if (!th->n)
 					return;
@@ -1236,9 +1236,7 @@ public:
 			head_t* th = (head_t*)(begin + h->cl);
 			while (th) {
 				// if this node was deleted -> jump
-				if (th->t != type_flag_t::del_t) {
-					mh.mapp[th->get_key()] = (length_t)((const char*)th - data->data());
-				}
+				mh.mapp[th->get_key()] = (length_t)((const char*)th - data->data());
 				// return the end head
 				if (!th->n)
 					return;
@@ -1257,72 +1255,70 @@ public:
 		head_ptr_t th = h;
 
 		while (1) {
-			if (th->t != type_flag_t::del_t) {
-				if (stack.size() && stack.top().is_obj) {
-					if (th->kl) {
-						str += "\"";
-						str += th->get_key();
-						str += "\":";
-					}
-					else {
-						str += "\"\":";
-					}
-				}
-
-				if (th->t == type_flag_t::obj_t) {
-					if (th->cl) {
-						str += "{";
-						stack.push({ true,(int)th.offset });
-						th = (head_t*)(data->data() + th->cl);
-						continue;
-					}
-					else {
-						th = (head_t*)(data->data() + th->n);
-						str += "{},";
-					}
-					//continue;
-				}
-				else if (th->t == type_flag_t::arr_t) {
-					if (th->cl) {
-						str += "[";
-						stack.push({ false, (int)th.offset });
-						th = (head_t*)(data->data() + th->cl);
-						continue;
-					}
-					else {
-						th = (head_t*)(data->data() + th->n);
-						str += "[],";
-					}
-
-				}
-
-				if (th->t == type_flag_t::num_t) {
-					if (th->cl == type_flag_t::num_int_t) {
-						int64_t i64 = th->get_num(template_param<int64_t>());
-						parser::serialize(&i64, str);
-					}
-					else {
-						double d64 = th->get_num(template_param<double>());
-						parser::serialize(&d64, str);
-					}
-					str += ',';
-				}
-				else if (th->t == type_flag_t::str_t) {
+			if (stack.size() && stack.top().is_obj) {
+				if (th->kl) {
 					str += "\"";
-					str += th->get_string();
-					str += "\",";
+					str += th->get_key();
+					str += "\":";
 				}
-				else if (th->t == type_flag_t::nul_t) {
-					str += "null";
-					str += ',';
+				else {
+					str += "\"\":";
 				}
-				else if (th->t == type_flag_t::boo_t) {
-					if (th->get_num(template_param<bool>()))
-						str += "true";
-					else
-						str += "false";
-					str += ',';
+			}
+
+			if (th->t == type_flag_t::obj_t) {
+				if (th->cl) {
+					str += "{";
+					stack.push({ true,(int)th.offset });
+					th = (head_t*)(data->data() + th->cl);
+					continue;
 				}
+				else {
+					th = (head_t*)(data->data() + th->n);
+					str += "{},";
+				}
+				//continue;
+			}
+			else if (th->t == type_flag_t::arr_t) {
+				if (th->cl) {
+					str += "[";
+					stack.push({ false, (int)th.offset });
+					th = (head_t*)(data->data() + th->cl);
+					continue;
+				}
+				else {
+					th = (head_t*)(data->data() + th->n);
+					str += "[],";
+				}
+
+			}
+
+			if (th->t == type_flag_t::num_t) {
+				if (th->cl == type_flag_t::num_int_t) {
+					int64_t i64 = th->get_num(template_param<int64_t>());
+					parser::serialize(&i64, str);
+				}
+				else {
+					double d64 = th->get_num(template_param<double>());
+					parser::serialize(&d64, str);
+				}
+				str += ',';
+			}
+			else if (th->t == type_flag_t::str_t) {
+				str += "\"";
+				str += th->get_string();
+				str += "\",";
+			}
+			else if (th->t == type_flag_t::nul_t) {
+				str += "null";
+				str += ',';
+			}
+			else if (th->t == type_flag_t::boo_t) {
+				if (th->get_num(template_param<bool>()))
+					str += "true";
+				else
+					str += "false";
+				str += ',';
 			}
 			while (!th->n) {
 				str.pop_back();
@@ -1370,31 +1366,33 @@ public:
 
 	void hash_resize() {
 		if (link_table->size() + 1 > hash_table->size()) {
-			hash_table_t t_hash_table(move(*hash_table));
-			link_table_t t_link_table(move(*link_table));
-
-			auto pr = six_prime_index(t_link_table.size());
+			auto pr = six_prime_index(link_table->size());
+			hash_table->resize(0);
 			hash_table->resize(six_prime(2 * pr));
-			link_table->reserve(t_link_table.size());
-			for (auto& next : t_hash_table) {
-				while (next) {
-					auto& ln = t_link_table[next - 1];
-					head_t* th = (head_t*)(data->data() + ln.value_off);
-					next = ln.next;
-					if (th->t != type_flag_t::del_t) {
-						size_t hk = 0;
-						if (th->kl == 9) {
-							hash<no_copy_string> h;
-							hk = h(th->get_key());
-						}
-						else {
-							hk = th->get_int_key();
-						}
-						add_node(hk, ln);
+			size_t i = 0;
+			for (auto& ln : (*link_table)) {
+				i++;
+				head_t* th = (head_t*)(data->data() + ln.value_off);
+				if (th->t != type_flag_t::del_t) {
+					size_t hk = 0;
+					if (th->kl == 9) {
+						hash<no_copy_string> h;
+						hk = h(th->get_key());
 					}
+					else {
+						hk = th->get_int_key();
+					}
+					add_node(hk, ln, i);
 				}
 			}
 		}
+	}
+
+	void add_node(size_t key, hash_node& hn, size_t idx) {
+		size_t index = key % hash_table->size();
+		uint32_t& node = (*hash_table)[index];
+		hn.next = node;
+		node = idx;
 	}
 
 	void add_node(const char* key, size_t value_off) {
@@ -1502,9 +1500,7 @@ private:
 			length_t i = 0;
 			while (th) {
 				// if this node was deleted -> jump
-				if (th->t != type_flag_t::del_t) {
-					i++;
-				}
+				i++;
 				// return the end head
 				if (!th->n)
 					return i;
@@ -1525,15 +1521,12 @@ private:
 			head_t* th = (head_t*)(begin + h->cl);
 			uint32_t i = 0;
 			while (th) {
-				// if this node was deleted -> jump
-				if (th->t != type_flag_t::del_t) {
-					// if find the index -> reset the head
-					if (i == index) {
-						//h = th;
-						return th;
-					}
-					i++;
+				// if find the index -> reset the head
+				if (i == index) {
+					//h = th;
+					return th;
 				}
+				i++;
 				// return the end head
 				if (!th->n)
 					return th;
@@ -1552,14 +1545,11 @@ private:
 			// point to the child begin
 			head_t* th = (head_t*)(begin + h->cl);
 			while (th) {
-				// if this node was deleted -> jump
-				if (th->t != type_flag_t::del_t) {
-					// if find the key -> reset the head
-					if (th->keycmp(key)) {
-						//h = th;
-						is_find = true;
-						return th;
-					}
+				// if find the key -> reset the head
+				if (th->keycmp(key)) {
+					//h = th;
+					is_find = true;
+					return th;
 				}
 				// return the end head
 				if (!th->n)
@@ -1592,12 +1582,9 @@ private:
 			// point to the child begin
 			head_t* th = (head_t*)(begin + h->cl);
 			while (th) {
-				// if this node was deleted -> jump
-				if (th->t != type_flag_t::del_t) {
-					// if find the key -> reset the head
-					if (th->keycmp(key)) {
-						return true;
-					}
+				// if find the key -> reset the head
+				if (th->keycmp(key)) {
+					return true;
 				}
 				// return the end head
 				if (!th->n)
@@ -1717,7 +1704,6 @@ public:
 
 	void push_head_from(flag_t t, head_ptr_t from) {
 		//add head
-		//update_head(data->size());
 		key_t kl = from->get_kl();
 		h.grow_refresh(sizeof(head_t) + kl);
 		//add key end with '\0'
@@ -1728,10 +1714,8 @@ public:
 		h->t = t;
 
 		add_node(h->get_key(), h.offset);
-	}
 
-	inline void push_key(const char* str, length_t len) {
-		data->append(str, len);
+		link_node();
 	}
 
 	inline void push_str(const char* str, length_t len) {
@@ -1740,24 +1724,10 @@ public:
 	}
 
 	template<class N>
-	inline N& push_num(const template_param<N>& num) {
+	inline void push_num(N num) {
 		h->t = type_flag_t::num_t;
-		data->resize(data->size() + sizeof(number_t));
-		set_num_cl(num);
-		return *(N*)h->get_val();
-	}
-
-	template<class N>
-	inline void set_num_cl(const template_param<N>&) {
-		h->cl = type_flag_t::num_int_t;
-	}
-
-	inline void set_num_cl(const template_param<double>&) {
-		h->cl = type_flag_t::num_double_t;
-	}
-
-	inline void set_num_cl(const template_param<float>&) {
-		h->cl = type_flag_t::num_double_t;
+		h.grow(sizeof(number_t));
+		h->set_val(num);
 	}
 
 	void root_copy(json_value& jv) {
