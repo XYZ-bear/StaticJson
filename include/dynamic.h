@@ -365,7 +365,8 @@ public:
 		obj_t = 7,
 		del_t = 8,
 		num_double_t = 9,
-		num_int_t = 10
+		num_int_t = 10,
+		del_o_t = 11
 	};
 
 	//! help you to push the childs into a vector
@@ -414,27 +415,45 @@ public:
 		data_t* ptr = nullptr;
 		size_t offset = 0;
 		size_t poffset = 0;
+
+#ifdef _DEBUG
+		PTR* debug_h;
+#endif // DEBUG
+
+		
 		offset_ptr() {
 		}
 		offset_ptr(data_t* p) {
 			ptr = p;
 			offset = p->size();
 			poffset = offset;
+#ifdef _DEBUG
+			debug_h = (PTR*)(ptr->data() + offset);
+#endif // DEBUG
 		}
 		offset_ptr(data_t* p, size_t o) {
 			ptr = p;
 			offset = o;
 			poffset = o;
+#ifdef _DEBUG
+			debug_h = (PTR*)(ptr->data() + offset);
+#endif // DEBUG
 		}
 		offset_ptr(data_t* p, size_t o, size_t po) {
 			ptr = p;
 			offset = o;
 			poffset = po;
+#ifdef _DEBUG
+			debug_h = (PTR*)(ptr->data() + offset);
+#endif // DEBUG
 		}
 		offset_ptr(const offset_ptr<PTR>& l) {
 			ptr = l.ptr;
 			offset = l.offset;
 			poffset = l.poffset;
+#ifdef _DEBUG
+			debug_h = (PTR*)(ptr->data() + offset);
+#endif // DEBUG
 		}
 		inline void update(size_t off) {
 			offset = off;
@@ -472,9 +491,15 @@ public:
 		}
 		inline void refresh() {
 			offset = ptr->size();
+#ifdef _DEBUG
+			debug_h = (PTR*)(ptr->data() + offset);
+#endif // DEBUG
 		}
 		inline void grow(size_t len) {
 			ptr->resize(ptr->size() + len);
+#ifdef _DEBUG
+			debug_h = (PTR*)(ptr->data() + offset);
+#endif // DEBUG
 		}
 		inline void grow_refresh(size_t len) {
 			offset = ptr->size();
@@ -575,6 +600,10 @@ protected:
 			return kl == 9 ? strlen(get_key()) + 1 : kl;
 		}
 
+		inline size_t get_vl() {
+			return t == type_flag_t::num_t ? sizeof(number_t) : cl;
+		}
+
 		template<class N>
 		void set_num(N num) {
 			*(N*)(get_val()) = num;
@@ -626,7 +655,6 @@ public:
 	json_value() {
 		data = new data_t();
 
-		h = head_ptr_t(data, 0);
 		push_head_init();
 
 		hash_table = new hash_table_t();
@@ -974,7 +1002,11 @@ public:
 		size_t off = data->size();
 		size_t kl = type_len(key);
 		size_t vl = type_len(val);
-		h.grow(sizeof(head_t) + kl + vl);
+		size_t doff = get_del_node(kl + vl);
+		if (doff)
+			off = doff;
+		else
+			h.grow(sizeof(head_t) + kl + vl);
 		head_t* th = (head_t*)(data->data() + off);
 		th->t = val_type(val);
 		th->cl = vl;
@@ -995,6 +1027,62 @@ public:
 		h->t = type_flag_t::obj_t;
 
 		add_node_nofind(key, off);
+	}
+
+	inline uint32_t get_del_node(size_t len, size_t poff = 0) {
+		head_t* pth = (head_t*)(data->data() + poff);
+		if (!pth->cl)
+			return 0;
+		head_t* dth = (head_t*)(data->data() + pth->cl);
+		while (dth) {
+			size_t off = (char*)dth - data->data();
+			if (dth->cl && dth->t == type_flag_t::del_o_t) {
+				return get_del_node(len, off);
+			}
+			
+			uint32_t l = dth->get_kl() + dth->get_vl();
+
+			if (len<=l) {
+				if (pth->cl == off) {
+					pth->cl = dth->n;
+				}
+				else
+					pth->n = dth->n;
+				cout << "get del----> " << off << endl;
+				dth->n = 0;
+				dth->p = 0;
+				return off;
+			}
+
+			if (!dth->n)
+				break;
+
+			pth = dth;
+			dth = (head_t*)(data->data() + dth->n);
+
+		}
+		return 0;
+	}
+
+	void print_del(size_t poff = 0) {
+		head_t* dth = (head_t*)(data->data() + poff);
+		dth = (head_t*)(data->data() + dth->cl);
+		cout << "del_node:" << endl;
+		while (dth) {
+			size_t off = (char*)dth - data->data();
+			if (dth->cl && dth->t == type_flag_t::del_o_t) {
+				print_del(off);
+			}
+			if (dth->kl < 9 && dth->kl) {
+				cout << dth->get_int_key() << endl;
+			}
+			else if (dth->kl >= 9) {
+				cout << dth->get_key() << endl;
+			}
+			if (!dth->n)
+				break;
+			dth = (head_t*)(data->data() + dth->n);
+		}
 	}
 
 	template<class V>
@@ -1089,7 +1177,10 @@ public:
 				when insert a new value the memery may be use again.
 	*/
 	void erase() {
-		h->t = type_flag_t::del_t;
+		if (h->t == type_flag_t::arr_t || h->t == type_flag_t::obj_t)
+			h->t = type_flag_t::del_o_t;
+		else
+			h->t = type_flag_t::del_t;
 		head_t* path = (head_t*)(data->data() + h.poffset);
 		if (h.offset == h->p) {
 			path->cl = 0;
@@ -1112,6 +1203,13 @@ public:
 				pth->n = 0;
 			}
 		}
+		head_t* dth = (head_t*)(data->data());
+		head_t* pdth = (head_t*)(data->data() + dth->cl);
+		auto tn = dth->cl;
+		dth->cl = h.offset;
+		h->n = tn;
+
+		
 	}
 
 	//! find a key
@@ -1613,7 +1711,6 @@ public:
 		data->reserve(base_size + base_size / 3);
 		data->resize(0);
 
-		h = head_ptr_t(data, 0);
 		push_head_init();
 
 		link_table->resize(0);
@@ -1686,6 +1783,10 @@ public:
 
 
 	void push_head_init() {
+		h = head_ptr_t(data, 0);
+		h.grow(sizeof(head_t));
+		h->t = type_flag_t::obj_t;
+		h = head_ptr_t(data, sizeof(head_t));
 		//add head
 		h.grow_refresh(sizeof(head_t));
 		h->t = type_flag_t::pre_t;
@@ -1864,7 +1965,7 @@ private:
 		json_stack<typename json_value_t::head_ptr_t> stack;
 		parser::skip_space(js);
 
-		json_value_t::update_head(0);
+		json_value_t::update_head(sizeof(json_value_t::head_t));
 		if (*js.begin == parser::json_key_symbol::str) {
 			string str;
 			if (!parse_string(str, js))
