@@ -1,4 +1,5 @@
 #pragma once
+
 #include "static_json.h"
 #include <vector>
 #include <functional>
@@ -106,11 +107,136 @@ private:
 	int begin;
 };
 
-size_t six_prime_index(size_t n) {
+template<class T, class A>
+class my_container {
+public:
+	struct head
+	{
+		uint32_t capacity = 0;
+		uint32_t size = 0;
+	};
+
+	T* _data;
+	head* h;
+	A _alloc;
+
+	my_container() {
+		allocate(ssize(0));
+		h = (head*)_data;
+	}
+
+	~my_container() {
+		dellocate(_data, ssize(h->capacity));
+	}
+
+	my_container(const A& a) {
+		_alloc = a;
+		allocate(ssize(0));
+		h = (head*)_data;
+		h->capacity = 0;
+		h->size = 0;
+	}
+
+	my_container(const my_container<T, A>& l) {
+		_data = l._data;
+		h = l.h;
+		_alloc = l._alloc;
+	}
+
+	void allocate(size_t size) {
+		uint32_t nsize = ssize(size);
+		_data = _alloc.allocate(nsize);
+		memset((void*)_data, 0, sizeof(T) * nsize);
+		h = (head*)_data;
+	}
+
+	void dellocate(T* d, uint32_t size) {
+		_alloc.deallocate(d, size);
+	}
+
+	inline uint32_t ssize(size_t size) {
+		return size + hsize();
+	}
+
+	inline uint32_t hsize() {
+		return sizeof(T) > sizeof(head) ? sizeof(T) : sizeof(head) / sizeof(T) + 1;
+	}
+
+	void resize(size_t size) {
+		if (size > h->capacity) {
+			reserve(size * 2);
+		}
+		else if (!size) {
+			uint32_t c = h->capacity;
+			uint32_t nsize = ssize(c);
+			memset((void*)_data, 0, sizeof(T)*nsize);
+			h->capacity = c;
+		}
+		h->size = size;
+	}
+
+	void reserve(size_t size) {
+		if (size > h->capacity) {
+			//uint32_t os = h->size;
+			uint32_t osize = ssize(h->capacity);
+			T* old = _data;
+			allocate(size);
+			memcpy((void*)_data, old, sizeof(T)*osize);
+			dellocate(old, osize);
+			//h->size = os;
+		}
+		h->capacity = size;
+	}
+
+	const T* data() {
+		return _data + ssize(0);
+	}
+
+	void append(const T* a, uint32_t size) {
+		if (h->size + size > h->capacity) {
+			reserve(size + h->size * 2);
+		}
+		memcpy((void*)(data() + h->size), a, size);
+		h->size += size;
+	}
+
+	T& operator [] (uint32_t index) {
+		return *((T*)(data() + index ));
+	}
+
+	void operator += (T d) {
+		if (h->size + 1 > h->capacity) {
+			reserve(1 + h->size * 2);
+		}
+		memcpy((void*)(data() + h->size), &d, 1);
+		h->size += 1;
+	}
+
+	uint32_t size() {
+		return h->size;
+	}
+
+	uint32_t capacity() {
+		return h->capacity;
+	}
+
+	void emplace_back(const T& v) {
+		if (h->size + 1 > h->capacity) {
+			reserve(1 + h->size * 2);
+		}
+		memcpy((void*)(data() + h->size), &v, sizeof(T));
+		h->size += 1;
+	}
+
+
+};
+
+
+inline size_t six_prime_index(size_t n) {
 	return (sqrt(12 * n - 3) - 3) / 6;
 }
 
-size_t six_prime(size_t idx) {
+inline size_t six_prime(size_t idx) {
 	return 3 * (idx * idx + idx) + 1;
 }
 
@@ -420,7 +546,7 @@ public:
 		PTR* debug_h;
 #endif // DEBUG
 
-		
+
 		offset_ptr() {
 		}
 		offset_ptr(data_t* p) {
@@ -568,7 +694,7 @@ protected:
 			this->kl = type_len(key);
 		}
 
-		inline void set_key(const char* key) {	
+		inline void set_key(const char* key) {
 			memcpy((void*)get_key(), key, strlen(key) + 1);
 			this->kl = 9;
 		}
@@ -683,8 +809,10 @@ public:
 		hash_table = o.hash_table;
 		link_table = o.link_table;
 
-		push_head_nofind(type_flag_t::pre_t, key);
-		link_node();
+		if (h->t != type_flag_t::pre_t) {
+			push_head_nofind(type_flag_t::pre_t, key);
+			link_node();
+		}
 	}
 
 	template<class K>
@@ -693,9 +821,11 @@ public:
 		h = o.h;
 		hash_table = o.hash_table;
 		link_table = o.link_table;
-		this->h.poffset = ph;
-		push_head_nofind(type_flag_t::pre_t, key);
-		link_node();
+		if (h->t != type_flag_t::pre_t) {
+			this->h.poffset = ph;
+			push_head_nofind(type_flag_t::pre_t, key);
+			link_node();
+		}
 	}
 
 	json_value(const char* key) {
@@ -798,15 +928,15 @@ public:
 					head_ptr_t th(data, node->value_off);
 					if (th->t == type_flag_t::obj_t) {
 						th.poffset = node->value_off;
-						return json_value(th , *this);
+						return json_value(th, *this);
 					}
 					else {
 						th.poffset = h.poffset;
-						return json_value(th , *this);
+						return json_value(th, *this);
 					}
 				}
 
-				return json_value(*this, key);
+				return json_value(*this, h.offset, key);
 			}
 		}
 		return *this;
@@ -827,19 +957,26 @@ public:
 				}
 				else {
 					th.poffset = h.poffset;
-					return json_value(th , *this);
+					return json_value(th, *this);
 				}
 			}
 
-			return json_value(*this, index);
+			return json_value(*this, h.offset, index);
 		}
 		if (h->t == type_flag_t::arr_t) {
 			head_t* th = get_index_head(index);
 			if (th) {
 				head_ptr_t thh(data);
 				thh = th;
-				thh.poffset = h.offset;
-				return json_value(thh, *this);
+
+				if (thh->t == type_flag_t::obj_t || thh->t == type_flag_t::arr_t) {
+					thh.poffset = (char*)th - data->data();
+					return json_value(thh, *this);
+				}
+				else {
+					thh.poffset = h.offset;
+					return json_value(thh, *this);
+				}
 			}
 			else
 				return *this;
@@ -958,7 +1095,7 @@ public:
 	//! assign a string
 	void operator = (const char* str) {
 
-		if ( str) {
+		if (str) {
 			length_t len = (length_t)strlen(str);
 			if (h->t == type_flag_t::str_t) {
 				if (len <= h->cl) {
@@ -1026,7 +1163,7 @@ public:
 		}
 		h->t = type_flag_t::obj_t;
 
-		add_node_nofind(key, off);
+		add_node_nofind(key, off, h.offset);
 	}
 
 	inline uint32_t get_del_node(size_t len, size_t poff = 0) {
@@ -1039,18 +1176,18 @@ public:
 			if (dth->cl && dth->t == type_flag_t::del_o_t) {
 				return get_del_node(len, off);
 			}
-			
+
 			uint32_t l = dth->get_kl() + dth->get_vl();
 
-			if (len<=l) {
+			if (len <= l) {
 				if (pth->cl == off) {
 					pth->cl = dth->n;
 				}
 				else
 					pth->n = dth->n;
-				cout << "get del----> " << off << endl;
 				dth->n = 0;
 				dth->p = 0;
+				//cout<<"---> "<<off<<endl;
 				return off;
 			}
 
@@ -1177,6 +1314,8 @@ public:
 				when insert a new value the memery may be use again.
 	*/
 	void erase() {
+		if (h->t == type_flag_t::pre_t)
+			return;
 		if (h->t == type_flag_t::arr_t || h->t == type_flag_t::obj_t)
 			h->t = type_flag_t::del_o_t;
 		else
@@ -1209,7 +1348,7 @@ public:
 		dth->cl = h.offset;
 		h->n = tn;
 
-		
+
 	}
 
 	//! find a key
@@ -1354,10 +1493,14 @@ public:
 
 		while (1) {
 			if (stack.size() && stack.top().is_obj) {
-				if (th->kl) {
+				if (th->kl == 9) {
 					str += "\"";
 					str += th->get_key();
 					str += "\":";
+				}
+				else if (th->kl < 9 && th->kl) {
+					str += to_string(th->get_int_key());
+					str += ":";
 				}
 				else {
 					str += "\"\":";
@@ -1516,9 +1659,25 @@ public:
 	template<class K>
 	void add_node_nofind(K key, size_t value_off) {
 		hash_resize();
-		hash_node hh = {0, this->h.poffset, value_off};
-		add_node(key,hh);
+		hash_node hh = { 0, this->h.poffset, value_off };
+		add_node(key, hh);
 	}
+
+	void add_node_nofind(const char* key, size_t value_off, size_t p_off) {
+		hash_resize();
+		hash<no_copy_string> h;
+		size_t hk = h(key);
+		hash_node hh = { 0, p_off, value_off };
+		add_node(hk, hh);
+	}
+
+	template<class K>
+	void add_node_nofind(K key, size_t value_off, size_t p_off) {
+		hash_resize();
+		hash_node hh = { 0, p_off, value_off };
+		add_node(key, hh);
+	}
+
 
 	void add_node(size_t key, hash_node& hn) {
 		size_t index = key % hash_table->size();
@@ -1628,7 +1787,7 @@ private:
 				// return the end head
 				if (!th->n)
 					return th;
-					// point to the brother head
+				// point to the brother head
 				th = (head_t*)(begin + th->n);
 
 			}
@@ -1756,7 +1915,7 @@ public:
 		//add head
 		size_t poff = h.offset;
 		auto kl = type_len(key);
-		if(h->t != type_flag_t::pre_t)
+		if (h->t != type_flag_t::pre_t)
 			h.grow_refresh(sizeof(head_t) + kl);
 		//add key end with '\0'
 		h->set_key(key, kl);
@@ -1764,7 +1923,7 @@ public:
 		h->t = t;
 		h.poffset = poff;
 
-		add_node_nofind(key, h.offset);
+		add_node_nofind(key, h.offset, poff);
 		link_node();
 	}
 
@@ -1808,9 +1967,9 @@ public:
 		key_t kl = from->get_kl();
 		h.grow_refresh(sizeof(head_t) + kl);
 		//add key end with '\0'
-		if(from->kl == 9)
+		if (from->kl == 9)
 			h->set_key(from->get_key());
-		else if(kl)
+		else if (kl)
 			h->set_key(from->get_key(), kl);
 		h->t = t;
 
@@ -1860,7 +2019,7 @@ public:
 		json_value_t::release();
 	}
 private:
-	bool parse_string(string &data, json_stream& js) {
+	bool parse_string(string& data, json_stream& js) {
 		parser::get_next(js);
 		if (!parser::parse_str(data, js)) {
 			ERROR_RETURT(js);
@@ -1965,7 +2124,7 @@ private:
 		json_stack<typename json_value_t::head_ptr_t> stack;
 		parser::skip_space(js);
 
-		json_value_t::update_head(sizeof(json_value_t::head_t));
+		json_value_t::update_head(sizeof(typename json_value_t::head_t));
 		if (*js.begin == parser::json_key_symbol::str) {
 			string str;
 			if (!parse_string(str, js))
@@ -1996,7 +2155,7 @@ private:
 						continue;
 					}
 					stack.push(json_value_t::h);
-					json_value_t::push_head2(json_value_t::type_flag_t::arr_t);			
+					json_value_t::push_head2(json_value_t::type_flag_t::arr_t);
 				}
 				else if (ch == parser::json_key_symbol::object_end) {
 					if (stack.size() > 0 && (stack.top()->t == json_value_t::type_flag_t::obj_t)) {
@@ -2014,7 +2173,7 @@ private:
 				else if (ch == parser::json_key_symbol::array_end) {
 					if (stack.size() > 0 && !(stack.top()->t == json_value_t::type_flag_t::obj_t)) {
 						//json_value_t::update_head(stack.top().off);
-						
+
 						stack.pop();
 						if (stack.size() > 0) {
 							json_value_t::h = stack.top();
@@ -2222,4 +2381,3 @@ public:
 
 typedef dynamic_json_proxy<> dynamic_json;
 typedef dynamic_json_proxy<shm_data_alloc_t, shm_table_alloc_t, shm_hash_alloc_t> shm_dynamic_json;
-
