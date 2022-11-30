@@ -169,7 +169,7 @@ public:
 		else if (!size) {
 			uint32_t c = h->capacity;
 			uint32_t nsize = ssize(c);
-			memset((void*)_data, 0, sizeof(T)*nsize);
+			memset((void*)_data, 0, sizeof(T) * nsize);
 			h->capacity = c;
 		}
 		h->size = size;
@@ -181,7 +181,7 @@ public:
 			uint32_t osize = ssize(h->capacity);
 			T* old = _data;
 			allocate(size);
-			memcpy((void*)_data, old, sizeof(T)*osize);
+			memcpy((void*)_data, old, sizeof(T) * osize);
 			dellocate(old, osize);
 			//h->size = os;
 		}
@@ -201,7 +201,7 @@ public:
 	}
 
 	T& operator [] (uint32_t index) {
-		return *((T*)(data() + index ));
+		return *((T*)(data() + index));
 	}
 
 	void operator += (T d) {
@@ -1351,6 +1351,17 @@ public:
 
 	}
 
+	template<class K>
+	void erase(K key) {
+		if (hash_node* node = find_node(key)) {
+			auto p = h;
+			h.poffset = h.offset;
+			h.offset = node->value_off;
+			erase();
+			h = p;
+		}
+	}
+
 	//! find a key
 	//! \return exist -> true or -> false
 	bool find(const char* key) {
@@ -1614,7 +1625,7 @@ public:
 			for (auto& ln : (*link_table)) {
 				i++;
 				head_t* th = (head_t*)(data->data() + ln.value_off);
-				if (th->t != type_flag_t::del_t) {
+				if (th->t != type_flag_t::del_t && th->t != type_flag_t::del_o_t) {
 					size_t hk = 0;
 					if (th->kl == 9) {
 						hash<no_copy_string> h;
@@ -1699,7 +1710,7 @@ public:
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
-			if (h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t) {
+			if (h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t || th->t == type_flag_t::del_o_t) {
 				next = next_node.next;
 				continue;
 			}
@@ -1716,7 +1727,7 @@ public:
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
-			if (this->h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t) {
+			if (this->h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t || th->t == type_flag_t::del_o_t) {
 				next = next_node.next;
 				continue;
 			}
