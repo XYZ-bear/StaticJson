@@ -483,16 +483,15 @@ public:
 	{
 		emp_t = 0,
 		pre_t = 1,
-		num_t = 2,
-		nul_t = 3,
-		boo_t = 4,
-		str_t = 5,
-		arr_t = 6,
-		obj_t = 7,
-		del_t = 8,
-		num_double_t = 9,
-		num_int_t = 10,
-		del_o_t = 11
+		nul_t = 2,
+		boo_t = 3,
+		str_t = 4,
+		arr_t = 5,
+		obj_t = 6,
+		del_t = 7,
+		del_o_t = 8,
+		num_t = 9,
+		num_double_t = 10,
 	};
 
 	//! help you to push the childs into a vector
@@ -710,7 +709,7 @@ protected:
 		template<class N>
 		inline void set_val(N num, size_t vl = 0) {
 			*(N*)(get_val()) = num;
-			set_num_cl(num);
+			cl = sizeof(number_t);
 		}
 
 		inline void set_val(const char* str, size_t len) {
@@ -727,7 +726,7 @@ protected:
 		}
 
 		inline size_t get_vl() {
-			return t == type_flag_t::num_t ? sizeof(number_t) : cl;
+			return cl;
 		}
 
 		template<class N>
@@ -741,7 +740,7 @@ protected:
 
 		template<class N>
 		N get_num(template_param<N> j) {
-			if (t == type_flag_t::num_t || type_flag_t::boo_t)
+			if (t >= type_flag_t::num_t || type_flag_t::boo_t)
 				return *(N*)(get_val());
 			return 0;
 		}
@@ -759,19 +758,6 @@ protected:
 			if (memcmp(str, get_val(), cl) == 0)
 				return true;
 			return false;
-		}
-
-		template<class N>
-		inline void set_num_cl(N) {
-			cl = type_flag_t::num_int_t;
-		}
-
-		inline void set_num_cl(double) {
-			cl = type_flag_t::num_double_t;
-		}
-
-		inline void set_num_cl(float) {
-			cl = type_flag_t::num_double_t;
 		}
 	};
 
@@ -1042,18 +1028,18 @@ public:
 	void operator = (N num) {
 
 		static_assert(is_arithmetic<N>::value != 0, "Must be arithmetic type");
-		if (h->t == type_flag_t::num_t)
+		if (h->t >= type_flag_t::num_t)
 			h->set_num(num);
 		else if (h->t == type_flag_t::pre_t) {
 			push_num(num);
 		}
 		else if (h->t == type_flag_t::emp_t) {
-			push_head(type_flag_t::num_t);
+			push_head(num_type(num));
 			push_num(num);
 		}
 		else {
 			erase();
-			push_head_from(type_flag_t::num_t, h);
+			push_head_from(num_type(num), h);
 			push_num(num);
 		}
 	}
@@ -1120,7 +1106,7 @@ public:
 				h->cl = len;
 				push_str(str, len);
 			}
-			else if ((h->t == type_flag_t::num_t || h->t == type_flag_t::boo_t) && len < sizeof(number_t)) {
+			else if ((h->t >= type_flag_t::num_t || h->t == type_flag_t::boo_t) && len < sizeof(number_t)) {
 				h->t = type_flag_t::str_t;
 				h->cl = len;
 				h->set_string(str, len + 1);
@@ -1139,14 +1125,14 @@ public:
 		size_t off = data->size();
 		size_t kl = type_len(key);
 		size_t vl = type_len(val);
-		size_t doff = get_del_node(kl + vl);
+		//cout<< key<<" ";
+		size_t doff = get_del_node(kl + vl, (head_t*)(data->data()));
 		if (doff)
 			off = doff;
 		else
 			h.grow(sizeof(head_t) + kl + vl);
 		head_t* th = (head_t*)(data->data() + off);
 		th->t = val_type(val);
-		th->cl = vl;
 		th->set_key(key, kl);
 		th->set_val(val, vl);
 
@@ -1166,37 +1152,50 @@ public:
 		add_node_nofind(key, off, h.offset);
 	}
 
-	inline uint32_t get_del_node(size_t len, size_t poff = 0) {
-		head_t* pth = (head_t*)(data->data() + poff);
-		if (!pth->cl)
-			return 0;
-		head_t* dth = (head_t*)(data->data() + pth->cl);
-		while (dth) {
-			size_t off = (char*)dth - data->data();
-			if (dth->cl && dth->t == type_flag_t::del_o_t) {
-				return get_del_node(len, off);
+	// inline uint32_t get_del_node(size_t len, head_t* pth) {
+	// 	if(!pth->cl){
+	// 		return 0;
+	// 	}
+
+	// 	head_t* dth = (head_t*)(data->data() + pth->cl);
+	// 	uint32_t l = dth->get_kl() + dth->get_vl();
+	// 	if (len <= l) {
+	// 		auto p = pth->cl;
+	// 		pth->cl = dth->n;
+	// 		dth->n = 0;
+	// 		dth->p = 0;
+	// 		return p;
+	// 	}
+	// 	return 0;
+	// }
+
+	inline uint32_t get_del_node(size_t len, head_t* pth) {
+		int ip = 0;
+		uint32_t next = pth->cl;
+		while (next) {
+			head_t* dth = (head_t*)(data->data() + next);
+			if (dth->t == type_flag_t::del_o_t && dth->cl) {
+				return get_del_node(len, dth);
 			}
 
 			uint32_t l = dth->get_kl() + dth->get_vl();
 
 			if (len <= l) {
-				if (pth->cl == off) {
+
+				if (pth->cl == next) 
 					pth->cl = dth->n;
-				}
 				else
 					pth->n = dth->n;
+
 				dth->n = 0;
 				dth->p = 0;
-				//cout<<"---> "<<off<<endl;
-				return off;
+				return next;
 			}
 
-			if (!dth->n)
-				break;
-
+			if (++ip > 3)
+				return 0;
 			pth = dth;
-			dth = (head_t*)(data->data() + dth->n);
-
+			next = dth->n;
 		}
 		return 0;
 	}
@@ -1220,6 +1219,23 @@ public:
 				break;
 			dth = (head_t*)(data->data() + dth->n);
 		}
+	}
+
+	int del_count(size_t poff = 0) {
+		head_t* dth = (head_t*)(data->data() + poff);
+		dth = (head_t*)(data->data() + dth->cl);
+		int i=0;
+		while (dth) {
+			size_t off = (char*)dth - data->data();
+			if (dth->cl && dth->t == type_flag_t::del_o_t) {
+				i += del_count(off);
+			}
+			if (!dth->n)
+				break;
+			dth = (head_t*)(data->data() + dth->n);
+			i++;
+		}
+		return i;
 	}
 
 	template<class V>
@@ -1294,7 +1310,7 @@ public:
 	bool operator == (N num) {
 
 		static_assert(is_arithmetic<N>::value != 0, "Must be arithmetic type");
-		if (h->t == type_flag_t::num_t || h->t == type_flag_t::boo_t)
+		if (h->t >= type_flag_t::num_t || h->t == type_flag_t::boo_t)
 			return h->get_num(template_param<N>()) == num;
 		else
 			return false;
@@ -1347,8 +1363,6 @@ public:
 		auto tn = dth->cl;
 		dth->cl = h.offset;
 		h->n = tn;
-
-
 	}
 
 	template<class K>
@@ -1396,7 +1410,7 @@ public:
 
 	bool is_number() {
 
-		return h->t == type_flag_t::num_t;
+		return h->t >= type_flag_t::num_t;
 	}
 
 	bool is_bool() {
@@ -1428,7 +1442,7 @@ public:
 
 		if (h->t == type_flag_t::arr_t || h->t == type_flag_t::obj_t)
 			return count_size();
-		else if (h->t == type_flag_t::num_t) {
+		else if (h->t >= type_flag_t::num_t) {
 			return sizeof(number_t);
 		}
 		return h->cl;
@@ -1546,14 +1560,13 @@ public:
 			}
 
 			if (th->t == type_flag_t::num_t) {
-				if (th->cl == type_flag_t::num_int_t) {
-					int64_t i64 = th->get_num(template_param<int64_t>());
-					parser::serialize(&i64, str);
-				}
-				else {
-					double d64 = th->get_num(template_param<double>());
-					parser::serialize(&d64, str);
-				}
+				int64_t i64 = th->get_num(template_param<int64_t>());
+				parser::serialize(&i64, str);
+				str += ',';
+			}
+			else if (th->t == type_flag_t::num_double_t) {
+				double d64 = th->get_num(template_param<double>());
+				parser::serialize(&d64, str);
 				str += ',';
 			}
 			else if (th->t == type_flag_t::str_t) {
@@ -1632,7 +1645,7 @@ public:
 						hk = h(th->get_key());
 					}
 					else {
-						hk = th->get_int_key();
+						hk = hc(th->get_int_key() , ln.parent);
 					}
 					add_node(hk, ln, i);
 				}
@@ -1671,7 +1684,7 @@ public:
 	void add_node_nofind(K key, size_t value_off) {
 		hash_resize();
 		hash_node hh = { 0, this->h.poffset, value_off };
-		add_node(key, hh);
+		add_node(hc(key , this->h.poffset), hh);
 	}
 
 	void add_node_nofind(const char* key, size_t value_off, size_t p_off) {
@@ -1686,7 +1699,7 @@ public:
 	void add_node_nofind(K key, size_t value_off, size_t p_off) {
 		hash_resize();
 		hash_node hh = { 0, p_off, value_off };
-		add_node(key, hh);
+		add_node(hc(key , p_off), hh);
 	}
 
 
@@ -1706,7 +1719,7 @@ public:
 
 	hash_node* find_node(size_t hk, const char* k) {
 		size_t index = hk % hash_table->size();
-		size_t next = (*hash_table)[index];;
+		size_t next = (*hash_table)[index];
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
@@ -1719,12 +1732,22 @@ public:
 		return nullptr;
 	}
 
+	inline size_t hc(size_t a, size_t b){
+		return a+b;
+	}
+
+	int ffjj = 0;
 	template<class K>
 	hash_node* find_node(K k) {
-		size_t hk = k;
+		size_t hk = hc(k , this->h.poffset);
 		size_t index = hk % hash_table->size();
 		size_t next = (*hash_table)[index];
+		//int j = 0;
 		while (next) {
+			//  j++;
+			//  if (j > ffjj) {
+			//  	ffjj = j;
+			//  }
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
 			if (this->h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t || th->t == type_flag_t::del_o_t) {
@@ -1995,8 +2018,21 @@ public:
 	}
 
 	template<class N>
+	inline type_flag_t num_type(N n) {
+		return type_flag_t::num_t;
+	}
+
+	inline type_flag_t num_type(float n) {
+		return type_flag_t::num_double_t;
+	}
+
+	inline type_flag_t num_type(double n) {
+		return type_flag_t::num_double_t;
+	}
+
+	template<class N>
 	inline void push_num(N num) {
-		h->t = type_flag_t::num_t;
+		h->t = num_type(num);
 		h.grow(sizeof(number_t));
 		h->set_val(num);
 	}
