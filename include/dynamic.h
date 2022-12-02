@@ -481,17 +481,16 @@ public:
 	//! all the json token type
 	enum type_flag_t
 	{
-		emp_t = 0,
-		pre_t = 1,
-		nul_t = 2,
-		boo_t = 3,
-		str_t = 4,
-		arr_t = 5,
-		obj_t = 6,
-		del_t = 7,
-		del_o_t = 8,
-		num_t = 9,
-		num_double_t = 10,
+		del_o_t = 0,
+		del_t = 1,
+		pre_t = 2,
+		arr_t = 3,
+		obj_t = 4,
+		nul_t = 5,
+		boo_t = 6,
+		str_t = 7,
+		num_t = 8,
+		num_double_t = 9,
 	};
 
 	//! help you to push the childs into a vector
@@ -1033,10 +1032,6 @@ public:
 		else if (h->t == type_flag_t::pre_t) {
 			push_num(num);
 		}
-		else if (h->t == type_flag_t::emp_t) {
-			push_head(num_type(num));
-			push_num(num);
-		}
 		else {
 			erase();
 			push_head_from(num_type(num), h);
@@ -1054,10 +1049,6 @@ public:
 			h->cl = 0;
 			h->t = type_flag_t::boo_t;
 		}
-		else if (h->t == type_flag_t::emp_t) {
-			push_head(type_flag_t::boo_t);
-			push_num(num);
-		}
 		else {
 			erase();
 			push_head_from(type_flag_t::boo_t, h);
@@ -1068,7 +1059,7 @@ public:
 	//! assign null
 	void operator = (nullptr_t null) {
 
-		if (h->t == type_flag_t::pre_t || h->t == type_flag_t::emp_t) {
+		if (h->t == type_flag_t::pre_t) {
 			h->t = type_flag_t::nul_t;
 		}
 		else {
@@ -1099,11 +1090,6 @@ public:
 				h->t = type_flag_t::str_t;
 				h->cl = len;
 				length_t off = data->size();
-				push_str(str, len);
-			}
-			else if (h->t == type_flag_t::emp_t) {
-				push_head(type_flag_t::str_t);
-				h->cl = len;
 				push_str(str, len);
 			}
 			else if ((h->t >= type_flag_t::num_t || h->t == type_flag_t::boo_t) && len < sizeof(number_t)) {
@@ -1330,12 +1316,11 @@ public:
 				when insert a new value the memery may be use again.
 	*/
 	void erase() {
-		if (h->t == type_flag_t::pre_t)
+		if (h->t <= type_flag_t::pre_t)
 			return;
-		if (h->t == type_flag_t::arr_t || h->t == type_flag_t::obj_t)
-			h->t = type_flag_t::del_o_t;
-		else
-			h->t = type_flag_t::del_t;
+
+		h->t = h->t > type_flag_t::obj_t ? type_flag_t::del_t : type_flag_t::del_o_t;
+
 		head_t* path = (head_t*)(data->data() + h.poffset);
 		if (h.offset == h->p) {
 			path->cl = 0;
@@ -1360,9 +1345,8 @@ public:
 		}
 		head_t* dth = (head_t*)(data->data());
 		head_t* pdth = (head_t*)(data->data() + dth->cl);
-		auto tn = dth->cl;
+		h->n  = dth->cl;
 		dth->cl = h.offset;
-		h->n = tn;
 	}
 
 	template<class K>
@@ -1638,7 +1622,7 @@ public:
 			for (auto& ln : (*link_table)) {
 				i++;
 				head_t* th = (head_t*)(data->data() + ln.value_off);
-				if (th->t != type_flag_t::del_t && th->t != type_flag_t::del_o_t) {
+				if (th->t > type_flag_t::del_t) {
 					size_t hk = 0;
 					if (th->kl == 9) {
 						hash<no_copy_string> h;
@@ -1723,7 +1707,7 @@ public:
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
-			if (h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t || th->t == type_flag_t::del_o_t) {
+			if (h.poffset != next_node.parent || !th->keycmp(k) || th->t <= type_flag_t::del_t) {
 				next = next_node.next;
 				continue;
 			}
@@ -1750,7 +1734,7 @@ public:
 			//  }
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
-			if (this->h.poffset != next_node.parent || !th->keycmp(k) || th->t == type_flag_t::del_t || th->t == type_flag_t::del_o_t) {
+			if (this->h.poffset != next_node.parent || !th->keycmp(k) || th->t <= type_flag_t::del_t) {
 				next = next_node.next;
 				continue;
 			}

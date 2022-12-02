@@ -262,9 +262,9 @@ TEST_CASE("perf recursion insert test") {
 
 	dynamic_json dj;
 	PERF(dynamic, repeat){
-		auto p=dj[rand() % 1000000];
+		auto p=dj[rand() % repeat];
 		for(int i=0;i<100;i++){
-			p.insert(i, i);
+			p.insert(rand() % repeat, i);
 		}
 	}
 	cout<<"----->"<<dj.ffjj<<endl;
@@ -274,65 +274,19 @@ TEST_CASE("perf recursion insert test") {
 	typedef unordered_map<int, uodbase*> uodt1;
 	uodt1 *ud = new uodt1();
 	PERF(unordered_map, repeat){
-		auto kk = rand() % 1000000;
+		auto kk = rand() % repeat;
 		auto res = ud->find(kk);
 		if(res == ud->end()){
 			uodbase *t = new uodbase();
 			for(int i=0;i<100;i++){
-				t->insert({i, i});
+				t->insert({rand() % repeat, i});
 			}
 			ud->insert({kk, t});
 		}
 		else{
 			for(int i=0;i<100;i++){
-				(*res).second->insert({i, i});
+				(*res).second->insert({rand() % repeat, i});
 			}
 		}
-	
 	}
-
-	
-
-	// dynamic_json dj;
-	// PERF(dynamic, repeat){
-	// 	size_t r = rand() % 100;
-	// 	if(r < 20)
-	// 		dj.insert(to_string(_idx).c_str(), _idx);
-	// 	else if(r>=20 && r<40){
-	// 		dj.insert(_idx, _idx);
-	// 	}
-	// 	else if(r>=40 && r<60){
-	// 		dj.erase(rand() % (_idx + 1));
-	// 	}
-	// 	else if(r>=60 && r<80){
-	// 		dj.erase(to_string(rand() % (_idx + 1)).c_str());
-	// 	}
-	// 	else if(r>=80 && r<90){
-	// 		dj.find_node(rand() % (_idx + 1));
-	// 	}
-	// 	else
-	// 		dj.find_node(to_string(rand() % (_idx + 1)).c_str());
-	// }
-
-	// unordered_map<string, int> mp;
-	// unordered_map<int, int> mp2;
-	// PERF(unorderd_map, repeat){
-	// 	size_t r = rand() % 100;
-	// 	if(r < 50)
-	// 		mp.insert({to_string(_idx), _idx});
-	// 	else if(r>=20 && r<40){
-	// 		mp2.insert({_idx, _idx});
-	// 	}
-	// 	else if(r>=40 && r<60){
-	// 		mp2.erase(rand() % (_idx + 1));
-	// 	}
-	// 	else if(r>=60 && r<80){
-	// 		mp.erase(to_string(rand() % (_idx + 1)));
-	// 	}
-	// 	else if(r>=80 && r<90){
-	// 		mp2.find(rand() % (_idx + 1));
-	// 	}
-	// 	else
-	// 		mp.find(to_string(rand() % (_idx + 1)));
-	// }
 }
