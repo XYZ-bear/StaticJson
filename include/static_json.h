@@ -54,7 +54,8 @@ return true;												\
 
 #define R(...) #__VA_ARGS__
 
-#define ERROR_RETURT(opt) cout << "[error]:" << opt.begin;assert(!js.is_option(ASSERT));cout<<endl;return false;
+//#define ERROR_RETURT(opt) cout << "[error]:" << opt.begin;assert(!js.is_option(ASSERT));cout<<endl;return false;
+#define ERROR_RETURT(opt)assert(!js.is_option(ASSERT));return false;
 
 //! singleton template
 template<class T>
@@ -270,6 +271,21 @@ public:
 	//this is not a strict api to check double,-1 -> double, 1 -> int, 0 -> error
 	static char inline is_double(json_stream &js) {
 		json_stream t = js;
+		if (*js.begin == '-') {
+			char ch = get_next(t);
+			if (ch < '0' || ch > '9') {
+				return false;
+			}
+			if (ch == '0') {
+				ch = get_next(t);
+				if (ch >= '0' && ch <= '9') {
+					return false;
+				}
+			}
+		}
+		if (*js.begin == '.') {
+			return 0;
+		}
 		if (*js.begin == '0') {
 			if (char ch = get_next(t)) {
 				if (ch == '.') {
@@ -279,7 +295,7 @@ public:
 					else
 						return 0;
 				}
-				else if (ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}')
+				else if (ch == ',' || is_ctr_or_space_char(ch) || ch == ']' || ch == '}' || ch == 'e' || ch == 'E')
 					return 1;
 				else
 					return 0;
@@ -674,7 +690,9 @@ public:
 					}
 					else if (ch == 'u') {
 						if (!js.is_option(UNESCAPE_UNICODE)) {
-							parse_hex4(val, js);
+							if (!parse_hex4(val, js)) {
+								return false;
+							}
 							b = js.begin;
 						}
 					}

@@ -1523,11 +1523,14 @@ public:
 					th = (head_t*)(data->data() + th->cl);
 					continue;
 				}
-				else {
-					th = (head_t*)(data->data() + th->n);
+				else{
 					str += "{},";
+					if (th->n) {
+						th = (head_t*)(data->data() + th->n);
+						continue;
+					}
 				}
-				//continue;
+				
 			}
 			else if (th->t == type_flag_t::arr_t) {
 				if (th->cl) {
@@ -1536,11 +1539,14 @@ public:
 					th = (head_t*)(data->data() + th->cl);
 					continue;
 				}
-				else {
-					th = (head_t*)(data->data() + th->n);
+				else{
 					str += "[],";
+					if (th->n) {
+						th = (head_t*)(data->data() + th->n);
+						continue;
+					}
 				}
-
+				
 			}
 
 			if (th->t == type_flag_t::num_t) {
@@ -2138,14 +2144,17 @@ private:
 
 	template<class V>
 	void push_kv(string* key, V val) {
-		if (key) {
+		if (json_value_t::h->t == json_value_t::type_flag_t::obj_t) {
 			json_value_t::insert(key->c_str(), val);
+			key->clear();
 		}
-		else {
+		else if (json_value_t::h->t == json_value_t::type_flag_t::arr_t) {
 			json_value_t::push_back(val);
 		}
+		else {
+			this->operator=(val);
+		}
 	}
-
 	//! Non recursive implementation, so there is no limit on the depth, it is up on your memory size
 	/*! \brief 	obj:{ -> "key" -> : -> value -> }
 				arr:[ -> value -> ]
@@ -2169,12 +2178,27 @@ private:
 			return true;
 		}
 		else if (*js.begin == parser::json_key_symbol::object_begin || *js.begin == parser::json_key_symbol::array_begin) {
-			while (char ch = parser::get_cur_and_next(js)) {
+			while (1) {
+				parser::skip_space(js);
+				char ch = parser::get_cur_and_next(js);
+				if (!ch)
+					break;
 				//step 1: check start tokens , [ {
 				//--------------------------------------------------------
 				parser::skip_space(js);
 				// , end and begin token
 				if (ch == parser::json_key_symbol::object_begin) {
+					if (*js.begin == parser::json_key_symbol::object_end) {
+						parser::skip_space(js);
+						ch = parser::get_cur_and_next(js);
+						json_value_t::push_head2(json_value_t::type_flag_t::obj_t);
+						json_value_t::h.update(json_value_t::h.poffset);
+						//json_value_t::h = stack.top();
+						if (stack.size() == 0 && *js.begin) {
+							return false;
+						}
+						continue;
+					}
 					stack.push(json_value_t::h);
 					json_value_t::push_head2(json_value_t::type_flag_t::obj_t);
 				}
@@ -2182,7 +2206,14 @@ private:
 					//[], empty array
 					if (*js.begin == parser::json_key_symbol::array_end) {
 						parser::skip_space(js);
-						ch = parser::get_cur_and_next(js);
+						parser::get_next(js);
+						parser::skip_space(js);
+						json_value_t::push_head2(json_value_t::type_flag_t::arr_t);
+						json_value_t::h.update(json_value_t::h.poffset);
+						//json_value_t::h = stack.top();
+						if (stack.size() == 0 && *js.begin) {
+							return false;
+						}
 						continue;
 					}
 					stack.push(json_value_t::h);
@@ -2237,14 +2268,6 @@ private:
 							if (parser::get_cur_and_next(js) != parser::json_key_symbol::key_value_separator) {
 								ERROR_RETURT(js);
 							}
-						}
-						//if no value pop stack
-						else if (ch == parser::json_key_symbol::object_end) {
-							stack.pop();
-							if (stack.size() > 0) {
-								json_value_t::h = stack.top();
-							}
-							continue;
 						}
 						else {
 							//error format
