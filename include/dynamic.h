@@ -533,6 +533,10 @@ public:
 		return type_flag_t::str_t;
 	}
 
+	inline size_t val_type(double key) {
+		return type_flag_t::num_double_t;
+	}
+
 	template<class PTR>
 	struct offset_ptr
 	{
@@ -1946,7 +1950,7 @@ public:
 
 		h->t = t;
 		h.poffset = poff;
-
+		
 		add_node_nofind(key, h.offset, poff);
 		link_node();
 	}
@@ -2160,7 +2164,7 @@ private:
 				arr:[ -> value -> ]
 		\return a reference of json_value
 	*/
-	bool parse(json_stream& js) {
+		bool parse(json_stream& js) {
 		json_stack<typename json_value_t::head_ptr_t> stack;
 		parser::skip_space(js);
 

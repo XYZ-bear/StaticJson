@@ -467,7 +467,7 @@ public:
 				res.append(de - rel, '0');
 			}
 		}
-		else if (de < 0) {
+		else if (de <= 0) {
 			res += "0.";
 			res.append(-1 * de, '0');
 			res += re;
