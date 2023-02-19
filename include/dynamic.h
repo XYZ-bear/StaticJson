@@ -89,6 +89,12 @@ public:
 		return true;
 	}
 
+	bool operator == (const json_iterator<T>& i) {
+		if (end == i.end && begin == i.begin)
+			return true;
+		return false;
+	}
+
 	T& operator *() { return *p; }
 
 	T& operator ++() {
@@ -350,6 +356,8 @@ public:
 
 #define MAX_KEY_LEN(kl) kl < 255 ? kl : 255
 #define CHECK_MAX_KEY_LEN(kl) kl < 255
+#define HASH_CHECK() if (!is_hashed()) return
+
 
 template <typename T>
 class std_allocator : public std::allocator<T>
@@ -453,7 +461,7 @@ typedef std_allocator<hash_node> shm_hash_alloc_t;
 #endif
 
 //! an efficient array-linked structure
-template<class DATA_ALLOC = d_alloc_t, class TABLE_ALLOC = t_alloc_t, class HASH_ALLOC = h_alloc_t>
+template<class DATA_ALLOC = d_alloc_t, class TABLE_ALLOC = t_alloc_t, class HASH_ALLOC = h_alloc_t, class HASHED = int>
 struct json_value {
 public:
 	//! inorder to support old compiler, separeate with type_flag_t
@@ -537,6 +545,14 @@ public:
 		return type_flag_t::num_double_t;
 	}
 
+	inline size_t val_type(bool key) {
+		return type_flag_t::boo_t;
+	}
+
+	inline size_t val_type(nullptr_t key) {
+		return type_flag_t::nul_t;
+	}
+
 	template<class PTR>
 	struct offset_ptr
 	{
@@ -605,9 +621,9 @@ public:
 		inline bool operator == (nullptr_t p) const {
 			return ptr == p;
 		}
-		/*inline operator bool()const noexcept {
+		inline operator bool()const noexcept {
 			return ptr;
-		}*/
+		}
 		//inline operator const char* ()const noexcept {
 		//	return (const char*)(ptr->data() + offset);
 		//}
@@ -772,6 +788,8 @@ public:
 
 		push_head_init();
 
+		HASH_CHECK();
+
 		hash_table = new hash_table_t();
 		link_table = new link_table_t();
 		hash_table->resize(61);
@@ -780,6 +798,7 @@ public:
 	json_value(const json_value& o) {
 		data = o.data;
 		h = o.h;
+
 		hash_table = o.hash_table;
 		link_table = o.link_table;
 	}
@@ -787,6 +806,7 @@ public:
 	json_value(const head_ptr_t& h, const json_value& o) {
 		data = o.data;
 		this->h = h;
+
 		hash_table = o.hash_table;
 		link_table = o.link_table;
 	}
@@ -836,7 +856,7 @@ public:
 		update_head(0);
 		h = head_ptr_t(data, 0);
 
-
+		HASH_CHECK();
 		hash_table = new hash_table_t(TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
 		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
 		hash_table->resize(61);
@@ -847,6 +867,8 @@ public:
 		data->reserve(pack->_data_count);
 		update_head(0);
 		h = head_ptr_t(data, 0);
+
+		HASH_CHECK();
 		hash_table = new hash_table_t(TABLE_ALLOC(&pack->_hash_shmid, &pack->_hash_count));
 		link_table = new link_table_t(HASH_ALLOC(&pack->_link_shmid, &pack->_link_count));
 		hash_table->reserve(pack->_hash_count);
@@ -854,10 +876,17 @@ public:
 	}
 
 	shm_pack get_shm_pack() {
+		if (is_hashed()) {
+			return { data->get_allocator().get_shmid(), data->size(),
+					 hash_table->get_allocator().get_shmid(), hash_table->size(),
+					 link_table->get_allocator().get_shmid(), link_table->size()
+			};
+		}
 		return { data->get_allocator().get_shmid(), data->size(),
-				 hash_table->get_allocator().get_shmid(), hash_table->size(),
-				 link_table->get_allocator().get_shmid(), link_table->size()
+				 0, 0,
+				 0, 0
 		};
+
 	}
 
 	~json_value() {
@@ -873,6 +902,7 @@ public:
 
 	void release() {
 		delete data;
+		HASH_CHECK();
 		delete hash_table;
 		delete link_table;
 	}
@@ -881,6 +911,7 @@ public:
 		if (data && hash_table && hash_table) {
 			mmp_op::release(key);
 			data->get_allocator().release();
+			HASH_CHECK();
 			hash_table->get_allocator().release();
 			link_table->get_allocator().release();
 		}
@@ -901,6 +932,14 @@ public:
 		return json_iterator<json_value>(this, true, 0);
 	}
 
+	template<class K>
+	json_iterator<json_value> find(K key) {
+		if(head_ptr_t th = find_(key)){
+			return json_iterator<json_value>(this, false, th.offset);
+		}
+		return json_iterator<json_value>(this, true, 0);
+	}
+
 	//! get object value
 	template<class K>
 	json_value operator [] (K key) {
@@ -912,11 +951,11 @@ public:
 				return json_value(*this, h.offset, key);
 			}
 			else {
-				// dont find the head -> add this key
-				if (hash_node* node = find_node(key)) {
-					head_ptr_t th(data, node->value_off);
+				// dont find_ the head -> add this key
+				if (head_ptr_t th = find_(key)) {
+					//head_ptr_t th(data, node->value_off);
 					if (th->t == type_flag_t::obj_t) {
-						th.poffset = node->value_off;
+						th.poffset = th.offset;
 						return json_value(th, *this);
 					}
 					else {
@@ -938,10 +977,10 @@ public:
 			return json_value(*this, h.offset, index);
 		}
 		if (h->t == type_flag_t::obj_t) {
-			if (hash_node* node = find_node(index)) {
-				head_ptr_t th(data, node->value_off);
+			if (head_ptr_t th = find_(index)) {
+				//head_ptr_t th(data, node->value_off);
 				if (th->t == type_flag_t::obj_t) {
-					th.poffset = node->value_off;
+					th.poffset = th.offset;
 					return json_value(th, *this);
 				}
 				else {
@@ -1228,6 +1267,14 @@ public:
 		return i;
 	}
 
+	json_value mutl_obj(const char* key) {
+		return json_value(*this, h.offset, key);
+	}
+
+	json_value mutl_arr() {
+		return json_value(*this, h.offset, "");
+	}
+
 	template<class V>
 	void push_back(V val) {
 		size_t off = data->size();
@@ -1251,6 +1298,8 @@ public:
 		}
 		h->t = type_flag_t::arr_t;
 	}
+
+
 
 
 	//! get number
@@ -1345,6 +1394,8 @@ public:
 			else {
 				head_t* pth = (head_t*)(data->data() + h->p);
 				pth->n = 0;
+				head_t* fth = (head_t*)(data->data() + path->cl);
+				fth->p = h->p;
 			}
 		}
 		head_t* dth = (head_t*)(data->data());
@@ -1355,28 +1406,28 @@ public:
 
 	template<class K>
 	void erase(K key) {
-		if (hash_node* node = find_node(key)) {
+		if (head_ptr_t th = find_(key)) {
 			auto p = h;
 			h.poffset = h.offset;
-			h.offset = node->value_off;
+			h.offset = th.offset;
 			erase();
 			h = p;
 		}
 	}
 
-	//! find a key
-	//! \return exist -> true or -> false
-	bool find(const char* key) {
+	// //! find_ a key
+	// //! \return exist -> true or -> false
+	// bool find_(const char* key) {
 
-		return find_key(key);
-	}
+	// 	return find_key(key);
+	// }
 
-	//! find a key
+	//! find_ a key
 	//! \return exist -> true or -> false
 	const json_value& findv(const char* key) {
 
-		if (hash_node* node = find_node(key)) {
-			return json_value(*this, head_ptr_t(data, node->value_off), node->value_off);
+		if (head_ptr_t th = find_(key)) {
+			return json_value(*this, th, th.offset);
 		}
 		return json_value();
 	}
@@ -1449,7 +1500,7 @@ public:
 	}
 
 	//! build all the same level data to a map
-	/*! \brief If you need to find a value by index in high frequency, this will help you.
+	/*! \brief If you need to find_ a value by index in high frequency, this will help you.
 			   If you want to know why this api is necessary, you should know about the json_value Memeary model
 		\param vh a vector_helper reference
 	*/
@@ -1474,7 +1525,7 @@ public:
 	}
 
 	//! build all the same level data to a map
-	/*! \brief if you need to find a value by key in high frequency, this will help you
+	/*! \brief if you need to find_ a value by key in high frequency, this will help you
 		\param mh a map_helper reference
 	*/
 	void build_map_helper(map_helper& mh) {
@@ -1600,6 +1651,8 @@ public:
 		data->swap(*jv.data);
 	}
 
+private:
+
 	void link_node() {
 		head_t* th = (head_t*)(data->data() + h.poffset);
 		if (!th->cl) {
@@ -1648,6 +1701,7 @@ public:
 	}
 
 	void add_node(size_t key, hash_node& hn, size_t idx) {
+		HASH_CHECK();
 		size_t index = key % hash_table->size();
 		uint32_t& node = (*hash_table)[index];
 		hn.next = node;
@@ -1655,6 +1709,7 @@ public:
 	}
 
 	void add_node(const char* key, size_t value_off) {
+		HASH_CHECK();
 		hash_resize();
 		hash<no_copy_string> h;
 		size_t hk = h(key);
@@ -1667,6 +1722,7 @@ public:
 	}
 
 	void add_node_nofind(const char* key, size_t value_off) {
+		HASH_CHECK();
 		hash_resize();
 		hash<no_copy_string> h;
 		size_t hk = h(key);
@@ -1676,12 +1732,14 @@ public:
 
 	template<class K>
 	void add_node_nofind(K key, size_t value_off) {
+		HASH_CHECK();
 		hash_resize();
 		hash_node hh = { 0, this->h.poffset, value_off };
 		add_node(hc(key , this->h.poffset), hh);
 	}
 
 	void add_node_nofind(const char* key, size_t value_off, size_t p_off) {
+		HASH_CHECK();
 		hash_resize();
 		hash<no_copy_string> h;
 		size_t hk = h(key);
@@ -1691,6 +1749,7 @@ public:
 
 	template<class K>
 	void add_node_nofind(K key, size_t value_off, size_t p_off) {
+		HASH_CHECK();
 		hash_resize();
 		hash_node hh = { 0, p_off, value_off };
 		add_node(hc(key , p_off), hh);
@@ -1730,18 +1789,12 @@ public:
 		return a+b;
 	}
 
-	int ffjj = 0;
 	template<class K>
 	hash_node* find_node(K k) {
 		size_t hk = hc(k , this->h.poffset);
 		size_t index = hk % hash_table->size();
 		size_t next = (*hash_table)[index];
-		//int j = 0;
 		while (next) {
-			//  j++;
-			//  if (j > ffjj) {
-			//  	ffjj = j;
-			//  }
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
 			if (this->h.poffset != next_node.parent || !th->keycmp(k) || th->t <= type_flag_t::del_t) {
@@ -1806,7 +1859,7 @@ private:
 			head_t* th = (head_t*)(begin + h->cl);
 			uint32_t i = 0;
 			while (th) {
-				// if find the index -> reset the head
+				// if find_ the index -> reset the head
 				if (i == index) {
 					//h = th;
 					return th;
@@ -1830,7 +1883,7 @@ private:
 			// point to the child begin
 			head_t* th = (head_t*)(begin + h->cl);
 			while (th) {
-				// if find the key -> reset the head
+				// if find_ the key -> reset the head
 				if (th->keycmp(key)) {
 					//h = th;
 					is_find = true;
@@ -1861,25 +1914,27 @@ private:
 		return nullptr;
 	}
 
-	bool find_key(const char* key) {
+	template<class T>
+	head_t* find_key(T key) {
 		if (h->t == type_flag_t::obj_t) {
 			const char* begin = data->data();
 			// point to the child begin
 			head_t* th = (head_t*)(begin + h->cl);
 			while (th) {
-				// if find the key -> reset the head
+				// if find_ the key -> reset the head
+
 				if (th->keycmp(key)) {
-					return true;
+					return th;
 				}
 				// return the end head
 				if (!th->n)
-					return false;
+					return nullptr;
 				// point to the brother head
 				th = (head_t*)(begin + th->n);
 			}
-			return false;
+			return nullptr;
 		}
-		return false;
+		return nullptr;
 	}
 
 	bool find_key(const char* key, size_t off) {
@@ -1887,6 +1942,22 @@ private:
 		if (th->keycmp(key))
 			return true;
 		return false;
+	}
+
+	template<class K>
+	head_ptr_t find_(K key) {
+		if (is_hashed()) {
+			if (hash_node* node = find_node(key)) {
+				return head_ptr_t(data, node->value_off);
+			}
+			return head_ptr_t();
+		}
+		else {
+			if (head_t* node = find_key(key)) {
+				return head_ptr_t(data, (char*)node - data->data());
+			}
+			return head_ptr_t();
+		}
 	}
 
 public:
@@ -1900,6 +1971,7 @@ public:
 
 		push_head_init();
 
+		HASH_CHECK();
 		link_table->resize(0);
 		hash_table->clear();
 		hash_table->resize(61);
@@ -2035,6 +2107,18 @@ public:
 		data = jv.data;
 		h = jv.h;
 	}
+
+	bool is_hashed() {
+		return is_hashed_(HASHED());
+	}
+
+	bool is_hashed_(int) {
+		return true;
+	}
+
+	bool is_hashed_(nullptr_t) {
+		return false;
+	}
 protected:
 	head_ptr_t h;
 
@@ -2046,10 +2130,10 @@ private:
 };
 
 //! a Non - recursive based parser
-template<class DATA_ALLOC = d_alloc_t, class TABLE_ALLOC = t_alloc_t, class HASH_ALLOC = h_alloc_t>
-class dynamic_json_proxy :public json_value<DATA_ALLOC, TABLE_ALLOC, HASH_ALLOC> {
+template<class DATA_ALLOC = d_alloc_t, class TABLE_ALLOC = t_alloc_t, class HASH_ALLOC = h_alloc_t, class HASHED = int>
+class dynamic_json_proxy :public json_value<DATA_ALLOC, TABLE_ALLOC, HASH_ALLOC, HASHED> {
 public:
-	typedef json_value<DATA_ALLOC, TABLE_ALLOC, HASH_ALLOC> json_value_t;
+	typedef json_value<DATA_ALLOC, TABLE_ALLOC, HASH_ALLOC, HASHED> json_value_t;
 	typedef uint32_t length_t;
 
 	dynamic_json_proxy() : json_value_t() {
@@ -2439,3 +2523,6 @@ public:
 
 typedef dynamic_json_proxy<> dynamic_json;
 typedef dynamic_json_proxy<shm_data_alloc_t, shm_table_alloc_t, shm_hash_alloc_t> shm_dynamic_json;
+
+// typedef dynamic_json_proxy<d_alloc_t, t_alloc_t, h_alloc_t, nullptr_t> dynamic_json;
+// typedef dynamic_json_proxy<shm_data_alloc_t, shm_table_alloc_t, shm_hash_alloc_t, nullptr_t> shm_dynamic_json;

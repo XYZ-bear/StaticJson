@@ -72,7 +72,7 @@ TEST_CASE("perf find str k test") {
 
 	PERF(dynamic, repeat){
 		string s=to_string(_idx);
-		dj.find_node(s.c_str());
+		dj.find(s.c_str());
 	}
 
 	unordered_map<string, string> mp;
@@ -107,7 +107,7 @@ TEST_CASE("perf find int k test") {
     }
 
 	PERF(dynamic, repeat){
-		dj.find_node(_idx);
+		dj.find(_idx);
 	}
 
 	unordered_map<int, int> mp;
@@ -225,10 +225,10 @@ TEST_CASE("perf random insert_erase 2 test") {
 			dj.erase(to_string(rand() % (_idx + 1)).c_str());
 		}
 		else if(r>=80 && r<90){
-			dj.find_node(rand() % (_idx + 1));
+			dj.find(rand() % (_idx + 1));
 		}
 		else
-			dj.find_node(to_string(rand() % (_idx + 1)).c_str());
+			dj.find(to_string(rand() % (_idx + 1)).c_str());
 	}
 
 	unordered_map<string, int> mp;
@@ -267,8 +267,6 @@ TEST_CASE("perf recursion insert test") {
 			p.insert(rand() % repeat, i);
 		}
 	}
-	cout<<"----->"<<dj.ffjj<<endl;
-
 
 	typedef unordered_map<int, int> uodbase;
 	typedef unordered_map<int, uodbase*> uodt1;

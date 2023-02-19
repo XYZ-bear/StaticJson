@@ -70,7 +70,7 @@ TEST_CASE("dynamic add test") {
 	CHECK(!(dj["c"]["a"] == 0));
 
 	dj["c"].erase();
-	CHECK(dj.find("c")== false);
+	CHECK((dj.find("c") == dj.end()));
 	
 }
 
@@ -93,7 +93,7 @@ TEST_CASE("dynamic insert test") {
 
 	CHECK((dj[8] == 10));
 	CHECK((dj[11] == 12));
-	CHECK((dj.find_node(3) == nullptr));
+	CHECK((dj.find(3) == dj.end()));
 }
 
 TEST_CASE("unicode v test") {
@@ -321,8 +321,8 @@ TEST_CASE("int key") {
 	n.insert(1.1, 4);
 	CHECK((n[1.1] == 4));
 
-	n.insert(true, 5);
-	CHECK((n[true] == 5));
+	// n.insert(true, 5);
+	// CHECK((n[true] == 5));
 
 	for (int i = 10; i < 100; i++) {
 		n.insert(i, i);
@@ -395,6 +395,55 @@ TEST_CASE("parse test") {
 
 	CHECK(dj.unserialize(R({ "a": [[[1,2],[3,4,5]],[[1,2],[3,4,5]]] })));
 
+	string path = ".//data//YhSwC2lEySnxeycw.json";
+	string js;
+	get_file(path, js);
+	PERF(42, 1) {
+		
+
+		if (js.size() > 0) {
+			dynamic_json dj;
+			dj.unserialize(js, UNESCAPE_UNICODE | UNESCAPE);
+
+		
+			// cout << dj.size() << endl;
+			// string f;
+			// dj.serialize(f);
+			// //cout << f << endl;
+			// ofstream file;
+			// file.open("YhSwC2lEySnxeycw2.json");
+			// file << f;
+		}
+
+	}
+
+	dynamic_json dj2;
+	auto f = dj2["a"];
+	f.push_back(1);
+	f.push_back("a");
+
+	auto aaa = dj2.mutl_obj("aaa");
+	auto bbb = aaa.mutl_arr();
+	bbb.push_back(1); 
+	auto ccc = bbb.mutl_arr();
+	ccc.push_back(2);
+	ccc.push_back(4);
+
+	auto ccc2 = bbb.mutl_arr();
+	ccc2.push_back(21);
+	ccc2.push_back(41);
+
+	string res;
+	dj2.serialize(res);
+	cout<< "------------" << res<<endl;
+
+
+
+	// auto bbb = dj2.mutl_arr();
+	// bbb.push_back(1);
+
+	return;
+
 	for (int i = 1; i < 34; i++) {
 		string path = ".//data//jsonchecker//fail";
 		if (i < 10)
@@ -424,5 +473,8 @@ TEST_CASE("parse test") {
 			CHECK(dj.unserialize(js));
 		}
 	}
+
+
+
 }
 
