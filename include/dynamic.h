@@ -357,6 +357,7 @@ public:
 #define MAX_KEY_LEN(kl) kl < 255 ? kl : 255
 #define CHECK_MAX_KEY_LEN(kl) kl < 255
 #define HASH_CHECK() if (!is_hashed()) return
+#define IS_STR_KEY(kl) kl == 9 
 
 
 template <typename T>
@@ -737,11 +738,11 @@ protected:
 		}
 
 		inline const char* get_val() {
-			return kl == 9 ? (char*)this + head_size() + strlen(get_key()) + 1 : (char*)this + head_size() + kl;
+			return IS_STR_KEY(kl) ? (char*)this + head_size() + strlen(get_key()) + 1 : (char*)this + head_size() + kl;
 		}
 
 		inline size_t get_kl() {
-			return kl == 9 ? strlen(get_key()) + 1 : kl;
+			return IS_STR_KEY(kl) ? strlen(get_key()) + 1 : kl;
 		}
 
 		inline size_t get_vl() {
@@ -820,7 +821,6 @@ public:
 
 		if (h->t != type_flag_t::pre_t) {
 			push_head_nofind(type_flag_t::pre_t, key);
-			link_node();
 		}
 	}
 
@@ -833,7 +833,6 @@ public:
 		if (h->t != type_flag_t::pre_t) {
 			this->h.poffset = ph;
 			push_head_nofind(type_flag_t::pre_t, key);
-			link_node();
 		}
 	}
 
@@ -1178,7 +1177,7 @@ public:
 		}
 		h->t = type_flag_t::obj_t;
 
-		add_node_nofind(key, off, h.offset);
+		add_node(key, off, h.offset);
 	}
 
 	// inline uint32_t get_del_node(size_t len, head_t* pth) {
@@ -1557,12 +1556,12 @@ public:
 
 		while (1) {
 			if (stack.size() && stack.top().is_obj) {
-				if (th->kl == 9) {
+				if (IS_STR_KEY(th->kl)) {
 					str += "\"";
 					str += th->get_key();
 					str += "\":";
 				}
-				else if (th->kl < 9 && th->kl) {
+				else if (th->kl) {
 					str += to_string(th->get_int_key());
 					str += ":";
 				}
@@ -1683,115 +1682,36 @@ private:
 			hash_table->resize(six_prime(2 * pr));
 			size_t i = 0;
 			for (auto& ln : (*link_table)) {
-				i++;
 				head_t* th = (head_t*)(data->data() + ln.value_off);
 				if (th->t > type_flag_t::del_t) {
 					size_t hk = 0;
-					if (th->kl == 9) {
-						hash<no_copy_string> h;
-						hk = h(th->get_key());
-					}
-					else {
-						hk = hc(th->get_int_key() , ln.parent);
-					}
-					add_node(hk, ln, i);
+					if (IS_STR_KEY(th->kl))
+						hk = hash_key(th->get_key(), ln.parent);
+					else
+						hk = hash_key(th->get_int_key(), ln.parent);
+					size_t index = hk % hash_table->size();
+					uint32_t& node = (*hash_table)[index];
+					ln.next = node;
+					node = (++i);
 				}
 			}
 		}
 	}
 
-	void add_node(size_t key, hash_node& hn, size_t idx) {
-		HASH_CHECK();
-		size_t index = key % hash_table->size();
-		uint32_t& node = (*hash_table)[index];
-		hn.next = node;
-		node = idx;
-	}
-
-	void add_node(const char* key, size_t value_off) {
-		HASH_CHECK();
-		hash_resize();
-		hash<no_copy_string> h;
-		size_t hk = h(key);
-		if (hash_node* node = find_node(hk, key)) {
-			node->value_off = value_off;
-			return;
-		}
-		hash_node hh = { 0, this->h.poffset, value_off };
-		add_node(hk, hh);
-	}
-
-	void add_node_nofind(const char* key, size_t value_off) {
-		HASH_CHECK();
-		hash_resize();
-		hash<no_copy_string> h;
-		size_t hk = h(key);
-		hash_node hh = { 0, this->h.poffset, value_off };
-		add_node(hk, hh);
-	}
-
 	template<class K>
-	void add_node_nofind(K key, size_t value_off) {
+	void add_node(K key, size_t value_off, size_t p_off) {
 		HASH_CHECK();
 		hash_resize();
-		hash_node hh = { 0, this->h.poffset, value_off };
-		add_node(hc(key , this->h.poffset), hh);
-	}
-
-	void add_node_nofind(const char* key, size_t value_off, size_t p_off) {
-		HASH_CHECK();
-		hash_resize();
-		hash<no_copy_string> h;
-		size_t hk = h(key);
-		hash_node hh = { 0, p_off, value_off };
-		add_node(hk, hh);
-	}
-
-	template<class K>
-	void add_node_nofind(K key, size_t value_off, size_t p_off) {
-		HASH_CHECK();
-		hash_resize();
-		hash_node hh = { 0, p_off, value_off };
-		add_node(hc(key , p_off), hh);
-	}
-
-
-	void add_node(size_t key, hash_node& hn) {
-		size_t index = key % hash_table->size();
+		size_t index = hash_key(key , p_off) % hash_table->size();
 		uint32_t& node = (*hash_table)[index];
-		hn.next = node;
+		hash_node hn = { node, p_off, value_off };
 		link_table->emplace_back(hn);
 		node = link_table->size();
 	}
 
-	hash_node* find_node(const char* key) {
-		hash<no_copy_string> h;
-		size_t hk = h(key);
-		return find_node(hk, key);
-	}
-
-	hash_node* find_node(size_t hk, const char* k) {
-		size_t index = hk % hash_table->size();
-		size_t next = (*hash_table)[index];
-		while (next) {
-			hash_node& next_node = (*link_table)[next - 1];
-			head_t* th = (head_t*)(data->data() + next_node.value_off);
-			if (h.poffset != next_node.parent || !th->keycmp(k) || th->t <= type_flag_t::del_t) {
-				next = next_node.next;
-				continue;
-			}
-			return &next_node;
-		}
-		return nullptr;
-	}
-
-	inline size_t hc(size_t a, size_t b){
-		return a+b;
-	}
-
 	template<class K>
 	hash_node* find_node(K k) {
-		size_t hk = hc(k , this->h.poffset);
+		size_t hk = hash_key(k , this->h.poffset);
 		size_t index = hk % hash_table->size();
 		size_t next = (*hash_table)[index];
 		while (next) {
@@ -1804,6 +1724,15 @@ private:
 			return &next_node;
 		}
 		return nullptr;
+	}
+
+	inline size_t hash_key(size_t a, size_t b){
+		return a+b;
+	}
+
+	inline size_t hash_key(const char* a, size_t b){
+		hash<no_copy_string> h;
+		return h(a);
 	}
 
 private:
@@ -1988,17 +1917,6 @@ public:
 
 	void push_head(flag_t t) {
 		//add head
-		if (h->t == type_flag_t::pre_t) {
-			h->t = t;
-		}
-		else {
-			h.grow_refresh(sizeof(head_t));
-			h->t = t;
-		}
-	}
-
-	void push_head2(flag_t t) {
-		//add head
 		size_t poff = h.offset;
 		if (h->t == type_flag_t::pre_t) {
 			h->t = t;
@@ -2023,7 +1941,7 @@ public:
 		h->t = t;
 		h.poffset = poff;
 		
-		add_node_nofind(key, h.offset, poff);
+		add_node(key, h.offset, poff);
 		link_node();
 	}
 
@@ -2037,7 +1955,9 @@ public:
 
 		h->t = t;
 
-		add_node_nofind(key, h.offset);
+		add_node(key, h.offset, h.poffset);
+
+		link_node();
 	}
 
 
@@ -2051,7 +1971,7 @@ public:
 		h->t = type_flag_t::pre_t;
 		h->kl = 0;
 
-		//add_node_nofind(key, h.offset);
+		//add_node(key, h.offset);
 	}
 
 	inline std::string& get_data() {
@@ -2067,13 +1987,15 @@ public:
 		key_t kl = from->get_kl();
 		h.grow_refresh(sizeof(head_t) + kl);
 		//add key end with '\0'
-		if (from->kl == 9)
+		if (IS_STR_KEY(from->kl)){
 			h->set_key(from->get_key());
-		else if (kl)
-			h->set_key(from->get_key(), kl);
+			add_node(from->get_key(), h.offset, h.poffset);
+		}
+		else if (kl){
+			h->set_key(from->get_int_key(), kl);
+			add_node(from->get_int_key(), h.offset, h.poffset);
+		}
 		h->t = t;
-
-		add_node(h->get_key(), h.offset);
 
 		link_node();
 	}
@@ -2248,7 +2170,7 @@ private:
 				arr:[ -> value -> ]
 		\return a reference of json_value
 	*/
-		bool parse(json_stream& js) {
+	bool parse(json_stream& js) {
 		json_stack<typename json_value_t::head_ptr_t> stack;
 		parser::skip_space(js);
 
@@ -2279,7 +2201,7 @@ private:
 					if (*js.begin == parser::json_key_symbol::object_end) {
 						parser::skip_space(js);
 						ch = parser::get_cur_and_next(js);
-						json_value_t::push_head2(json_value_t::type_flag_t::obj_t);
+						json_value_t::push_head(json_value_t::type_flag_t::obj_t);
 						json_value_t::h.update(json_value_t::h.poffset);
 						//json_value_t::h = stack.top();
 						if (stack.size() == 0 && *js.begin) {
@@ -2288,7 +2210,7 @@ private:
 						continue;
 					}
 					stack.push(json_value_t::h);
-					json_value_t::push_head2(json_value_t::type_flag_t::obj_t);
+					json_value_t::push_head(json_value_t::type_flag_t::obj_t);
 				}
 				else if (ch == parser::json_key_symbol::array_begin) {
 					//[], empty array
@@ -2296,7 +2218,7 @@ private:
 						parser::skip_space(js);
 						parser::get_next(js);
 						parser::skip_space(js);
-						json_value_t::push_head2(json_value_t::type_flag_t::arr_t);
+						json_value_t::push_head(json_value_t::type_flag_t::arr_t);
 						json_value_t::h.update(json_value_t::h.poffset);
 						//json_value_t::h = stack.top();
 						if (stack.size() == 0 && *js.begin) {
@@ -2305,7 +2227,7 @@ private:
 						continue;
 					}
 					stack.push(json_value_t::h);
-					json_value_t::push_head2(json_value_t::type_flag_t::arr_t);
+					json_value_t::push_head(json_value_t::type_flag_t::arr_t);
 				}
 				else if (ch == parser::json_key_symbol::object_end) {
 					if (stack.size() > 0 && (stack.top()->t == json_value_t::type_flag_t::obj_t)) {
@@ -2384,7 +2306,7 @@ private:
 							json_value_t::push_head_nofind2(json_value_t::type_flag_t::pre_t, tkey->c_str());
 						}
 						else {
-							json_value_t::push_head2(json_value_t::type_flag_t::pre_t);
+							json_value_t::push_head(json_value_t::type_flag_t::pre_t);
 						}
 						continue;
 					}
@@ -2393,7 +2315,7 @@ private:
 							json_value_t::push_head_nofind2(json_value_t::type_flag_t::pre_t, tkey->c_str());
 						}
 						else {
-							json_value_t::push_head2(json_value_t::type_flag_t::pre_t);
+							json_value_t::push_head(json_value_t::type_flag_t::pre_t);
 						}
 						continue;
 					}
