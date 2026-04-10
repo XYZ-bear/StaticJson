@@ -101,7 +101,7 @@ TEST_CASE("perf find str k test") {
 TEST_CASE("perf find int k test") {
 	TEST_TITLE("perf find int k test");
 	dynamic_json dj;
-	size_t repeat = 100000;
+	size_t repeat = 1000000;
     for(int i=0;i<repeat;i++){
         dj.insert(i, i);
     }

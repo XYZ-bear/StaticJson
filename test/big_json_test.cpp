@@ -27,7 +27,7 @@ TEST_CASE("twitter test") {
 	}
 
 	string res;
-	get_file(".//data//twitter.json",res);
+	get_file("..//data//twitter.json",res);
 	PERF(twitter_test, 1) {
 		Twitter twitter;
 		twitter.unserialize(res.data());
@@ -36,7 +36,7 @@ TEST_CASE("twitter test") {
 
 TEST_CASE("multi thread test") {
 	string res;
-	get_file(".//data//twitter.json", res);
+	get_file("..//data//twitter.json", res);
 
 	thread t1([&res]()->void {
 		PERF(t1, 10) {
@@ -57,7 +57,7 @@ TEST_CASE("multi thread test") {
 
 TEST_CASE("cananda test") {
 	string res;
-	get_file(".//data//canada.json", res);
+	get_file("..//data//canada.json", res);
 	PERF(canada_test, 0) {
 		Canada canada;
 		canada.unserialize(res.data());
