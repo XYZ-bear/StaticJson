@@ -492,3 +492,34 @@ TEST_CASE("parse test") {
 
 }
 
+TEST_CASE("serialize with escape test") {
+	dynamic_json dj;
+
+	// Test quotes escaping
+	dj["quotes"] = "hello\"world";
+
+	// Test backslash escaping
+	dj["backslash"] = "path\\to\\file";
+
+	// Test newline escaping
+	dj["newline"] = "line1\nline2";
+
+	// Test tab escaping
+	dj["tab"] = "col1\tcol2";
+
+	// Test other control characters
+	dj["controls"] = "bell:\b form:\f carriage:\r";
+
+	string result;
+	dj.serialize(result);
+
+	// Verify escaping
+	CHECK(result.find("\\\"") != string::npos);  // quotes escaped
+	CHECK(result.find("\\\\") != string::npos);  // backslashes escaped
+	CHECK(result.find("\\n") != string::npos);   // newlines escaped
+	CHECK(result.find("\\t") != string::npos);   // tabs escaped
+	CHECK(result.find("\\b") != string::npos);   // backspace escaped
+	CHECK(result.find("\\f") != string::npos);   // formfeed escaped
+	CHECK(result.find("\\r") != string::npos);   // carriage return escaped
+}
+

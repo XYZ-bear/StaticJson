@@ -5,6 +5,8 @@
 #include <functional>
 #include <map>
 #include <math.h>
+#include <cstdio>
+#include <memory>
 
 #ifdef unix
 #include <unistd.h>
@@ -75,13 +77,31 @@ template <class T>
 class json_iterator
 {
 public:
-	json_iterator(T* pp, bool o, int off) :p(pp), end(o) {
-		begin = off;
+	json_iterator(T* pp, bool o, int off) :p(pp), end(o), begin(off), iter_stack(nullptr) {
 	}
 
-	json_iterator(const json_iterator<T>& i) :p(i.p) {}
+	json_iterator(const json_iterator<T>& i)
+		: p(i.p), end(i.end), begin(i.begin), iter_stack(nullptr) {
+		// deep copy iter_stack if it's initialized
+		if (i.iter_stack) {
+			iter_stack = std::make_unique<json_stack<info>>(*i.iter_stack);
+		}
+	}
 
-	json_iterator<T>& operator = (const json_iterator<T>& i) { p = i.p; return *this; }
+	json_iterator<T>& operator = (const json_iterator<T>& i) {
+		if (this != &i) {
+			p = i.p;
+			end = i.end;
+			begin = i.begin;
+			// deep copy iter_stack
+			if (i.iter_stack) {
+				iter_stack = std::make_unique<json_stack<info>>(*i.iter_stack);
+			} else {
+				iter_stack = nullptr;
+			}
+		}
+		return *this;
+	}
 
 	bool operator != (const json_iterator<T>& i) {
 		if (end == i.end)
@@ -98,7 +118,11 @@ public:
 	T& operator *() { return *p; }
 
 	T& operator ++() {
-		end = p->next(&iter_stack, begin);
+		// lazy initialization of iter_stack
+		if (!iter_stack) {
+			iter_stack = std::make_unique<json_stack<info>>();
+		}
+		end = p->next(iter_stack.get(), begin);
 		return *p;
 	}
 
@@ -108,7 +132,7 @@ public:
 	}
 private:
 	T* p;
-	json_stack<info> iter_stack;
+	std::unique_ptr<json_stack<info>> iter_stack;
 	bool end;
 	int begin;
 };
@@ -557,99 +581,74 @@ public:
 	template<class PTR>
 	struct offset_ptr
 	{
-		data_t* ptr = nullptr;
+		using element_type = PTR;
+		using pointer = PTR*;
+
+		data_t* container = nullptr;
 		size_t offset = 0;
-		size_t poffset = 0;
+		size_t parent_offset = 0;
 
-#ifdef _DEBUG
-		PTR* debug_h;
-#endif // DEBUG
+	private:
+		pointer compute_ptr() const {
+			return (PTR*)(container->data() + offset);
+		}
 
+	public:
+		offset_ptr() = default;
+		offset_ptr(data_t* c) : container(c), offset(c ? c->size() : 0), parent_offset(offset) {}
+		offset_ptr(data_t* c, size_t off) : container(c), offset(off), parent_offset(off) {}
+		offset_ptr(data_t* c, size_t off, size_t poff) : container(c), offset(off), parent_offset(poff) {}
 
-		offset_ptr() {
+		offset_ptr(const offset_ptr& other)
+			: container(other.container), offset(other.offset), parent_offset(other.parent_offset) {}
+
+		offset_ptr(offset_ptr&& other) noexcept
+			: container(other.container), offset(other.offset), parent_offset(other.parent_offset) {}
+
+		offset_ptr& operator=(const offset_ptr& other) {
+			if (this != &other) {
+				container = other.container;
+				offset = other.offset;
+				parent_offset = other.parent_offset;
+			}
+			return *this;
 		}
-		offset_ptr(data_t* p) {
-			ptr = p;
-			offset = p->size();
-			poffset = offset;
-#ifdef _DEBUG
-			debug_h = (PTR*)(ptr->data() + offset);
-#endif // DEBUG
+
+		offset_ptr& operator=(offset_ptr&& other) noexcept {
+			if (this != &other) {
+				container = other.container;
+				offset = other.offset;
+				parent_offset = other.parent_offset;
+			}
+			return *this;
 		}
-		offset_ptr(data_t* p, size_t o) {
-			ptr = p;
-			offset = o;
-			poffset = o;
-#ifdef _DEBUG
-			debug_h = (PTR*)(ptr->data() + offset);
-#endif // DEBUG
+
+		pointer get() const {
+			if (!container) return nullptr;
+			return compute_ptr();
 		}
-		offset_ptr(data_t* p, size_t o, size_t po) {
-			ptr = p;
-			offset = o;
-			poffset = po;
-#ifdef _DEBUG
-			debug_h = (PTR*)(ptr->data() + offset);
-#endif // DEBUG
-		}
-		offset_ptr(const offset_ptr<PTR>& l) {
-			ptr = l.ptr;
-			offset = l.offset;
-			poffset = l.poffset;
-#ifdef _DEBUG
-			debug_h = (PTR*)(ptr->data() + offset);
-#endif // DEBUG
-		}
-		inline void update(size_t off) {
-			offset = off;
-		}
-		inline void updatep(size_t off) {
-			poffset = off;
-		}
-		inline void update(data_t* p, size_t o) {
-			ptr = p;
-			offset = o;
-		}
-		inline void operator = (PTR* p) {
-			offset = (const char*)p - (const char*)ptr->data();
-		}
-		inline bool operator != (PTR* p) {
-			return p != (PTR*)(ptr->data() + offset);
-		}
-		inline bool operator == (PTR* p) {
-			return p == (PTR*)(ptr->data() + offset);
-		}
-		inline bool operator == (nullptr_t p) const {
-			return ptr == p;
-		}
-		inline operator bool()const noexcept {
-			return ptr;
-		}
-		//inline operator const char* ()const noexcept {
-		//	return (const char*)(ptr->data() + offset);
-		//}
-		//inline operator PTR* ()const noexcept {
-		//	return (PTR*)(ptr->data() + offset);
-		//}
-		inline PTR* operator -> () const {
-			return (PTR*)(ptr->data() + offset);
-		}
-		inline void refresh() {
-			offset = ptr->size();
-#ifdef _DEBUG
-			debug_h = (PTR*)(ptr->data() + offset);
-#endif // DEBUG
-		}
-		inline void grow(size_t len) {
-			ptr->resize(ptr->size() + len);
-#ifdef _DEBUG
-			debug_h = (PTR*)(ptr->data() + offset);
-#endif // DEBUG
-		}
-		inline void grow_refresh(size_t len) {
-			offset = ptr->size();
-			grow(len);
-		}
+
+		pointer operator->() const { return get(); }
+		pointer operator*() const { return get(); }
+		explicit operator bool() const noexcept { return container != nullptr; }
+
+		void set_offset(size_t off) { offset = off; }
+		void set_parent_offset(size_t off) { parent_offset = off; }
+		void set_container_and_offset(data_t* c, size_t off) { container = c; offset = off; }
+
+		bool operator==(const offset_ptr& other) const { return container == other.container && offset == other.offset; }
+		bool operator!=(const offset_ptr& other) const { return !(*this == other); }
+		bool operator==(PTR* p) const { return get() == p; }
+		bool operator!=(PTR* p) const { return get() != p; }
+		bool operator==(nullptr_t) const { return container == nullptr; }
+		bool operator!=(nullptr_t) const { return container != nullptr; }
+
+		offset_ptr& operator=(PTR* p) { sync_to_ptr(p); return *this; }
+		void sync_to_ptr(PTR* p) { if (container) { offset = (const char*)p - (const char*)container->data(); } }
+
+		void set_to_end() { offset = container ? container->size() : 0; }
+		void grow_container(size_t len) { if (container) container->resize(container->size() + len); }
+		void set_offset_to_end_and_grow(size_t len) { offset = container ? container->size() : 0; grow_container(len); }
 	};
 
 protected:
@@ -837,7 +836,7 @@ public:
 		hash_table = o.hash_table;
 		link_table = o.link_table;
 		if (h->type_ != type_flag_t::pre_t) {
-			this->h.poffset = ph;
+			this->h.parent_offset = ph;
 			push_head_nofind(type_flag_t::pre_t, key);
 		}
 	}
@@ -960,11 +959,11 @@ public:
 				if (head_ptr_t th = find_(key)) {
 					//head_ptr_t th(data, node->value_off);
 					if (th->type_ == type_flag_t::obj_t) {
-						th.poffset = th.offset;
+						th.parent_offset = th.offset;
 						return json_value(th, *this);
 					}
 					else {
-						th.poffset = h.poffset;
+						th.parent_offset = h.parent_offset;
 						return json_value(th, *this);
 					}
 				}
@@ -985,11 +984,11 @@ public:
 			if (head_ptr_t th = find_(index)) {
 				//head_ptr_t th(data, node->value_off);
 				if (th->type_ == type_flag_t::obj_t) {
-					th.poffset = th.offset;
+					th.parent_offset = th.offset;
 					return json_value(th, *this);
 				}
 				else {
-					th.poffset = h.poffset;
+					th.parent_offset = h.parent_offset;
 					return json_value(th, *this);
 				}
 			}
@@ -1003,11 +1002,11 @@ public:
 				thh = th;
 
 				if (thh->type_ == type_flag_t::obj_t || thh->type_ == type_flag_t::arr_t) {
-					thh.poffset = (char*)th - data->data();
+					thh.parent_offset = (char*)th - data->data();
 					return json_value(thh, *this);
 				}
 				else {
-					thh.poffset = h.offset;
+					thh.parent_offset = h.offset;
 					return json_value(thh, *this);
 				}
 			}
@@ -1164,7 +1163,7 @@ public:
 		if (deleted_offset)
 			node_offset = deleted_offset;
 		else
-			h.grow(sizeof(head_t) + key_len + val_len);
+			h.grow_container(sizeof(head_t) + key_len + val_len);
 
 		head_t* new_node = (head_t*)(data->data() + node_offset);
 		new_node->type_ = val_type(val);
@@ -1208,7 +1207,10 @@ public:
 
 	inline uint32_t get_del_node(size_t len, head_t* pth) {
 		int ip = 0;
-		uint32_t next = pth->content_len;
+		// For root node, use prev_ to store deleted chain; for others use content_len
+		bool is_root = (pth == (head_t*)(data->data()));
+		uint32_t next = is_root ? pth->prev_ : pth->content_len;
+
 		while (next) {
 			head_t* dth = (head_t*)(data->data() + next);
 			if (dth->type_ == type_flag_t::del_o_t && dth->content_len) {
@@ -1218,11 +1220,18 @@ public:
 			uint32_t l = dth->get_kl() + dth->get_vl();
 
 			if (len <= l) {
-
-				if (pth->content_len == next) 
-					pth->content_len = dth->next_;
-				else
-					pth->next_ = dth->next_;
+				if (is_root) {
+					if (pth->prev_ == next)
+						pth->prev_ = dth->next_;
+					else
+						pth->next_ = dth->next_;
+				}
+				else {
+					if (pth->content_len == next)
+						pth->content_len = dth->next_;
+					else
+						pth->next_ = dth->next_;
+				}
 
 				dth->next_ = 0;
 				dth->prev_ = 0;
@@ -1288,7 +1297,7 @@ public:
 		const size_t node_offset = data->size();
 		const size_t val_size = type_len(val);
 
-		h.grow(sizeof(head_t) + val_size);
+		h.grow_container(sizeof(head_t) + val_size);
 		head_t* new_node = (head_t*)(data->data() + node_offset);
 
 		new_node->type_ = val_type(val);
@@ -1386,41 +1395,50 @@ public:
 
 		h->type_ = h->type_ > type_flag_t::obj_t ? type_flag_t::del_t : type_flag_t::del_o_t;
 
-		head_t* path = (head_t*)(data->data() + h.poffset);
-		if (h.offset == h->prev_) {
-			path->content_len = 0;
+		head_t* parent_node = (head_t*)(data->data() + h.parent_offset);
+		if (h.offset == h->prev_ || (parent_node->child_offset == h.offset && !h->next_)) {
+			parent_node->child_offset = 0;
 		}
 		else {
 			if (h->next_) {
-				head_t* nth = (head_t*)(data->data() + h->next_);
-				if (path->content_len == h.offset) {
-					path->content_len = h->next_;
-					nth->prev_ = h->prev_;
+				head_t* next_node = (head_t*)(data->data() + h->next_);
+				if (parent_node->child_offset == h.offset) {
+					parent_node->child_offset = h->next_;
+					next_node->prev_ = h->prev_;
 				}
 				else {
-					head_t* pth = (head_t*)(data->data() + h->prev_);
-					pth->next_ = h->next_;
-					nth->prev_ = h->prev_;
+					head_t* pre_node = (head_t*)(data->data() + h->prev_);
+					pre_node->next_ = h->next_;
+					next_node->prev_ = h->prev_;
 				}
 			}
 			else {
-				head_t* pth = (head_t*)(data->data() + h->prev_);
-				pth->next_ = 0;
-				head_t* fth = (head_t*)(data->data() + path->content_len);
-				fth->prev_ = h->prev_;
+				head_t* pre_node = (head_t*)(data->data() + h->prev_);
+				pre_node->next_ = 0;
+				head_t* first_child_node = (head_t*)(data->data() + parent_node->child_offset);
+				first_child_node->prev_ = h->prev_;
 			}
 		}
-		head_t* dth = (head_t*)(data->data());
-		head_t* pdth = (head_t*)(data->data() + dth->content_len);
-		h->next_  = dth->content_len;
-		dth->content_len = h.offset;
+		// Store deleted node in parent's deleted list
+		// For root node, we need special handling to avoid corrupting its child list
+		head_t* delete_node = (head_t*)(data->data());
+		if (h.parent_offset == 0) {
+			// Parent is root - use prev_ to chain deleted nodes instead of content_len
+			h->next_  = delete_node->prev_;
+			delete_node->prev_ = h.offset;
+		}
+		else {
+			// Parent is not root - use parent's content_len for deleted chain
+			h->next_  = parent_node->child_offset;
+			parent_node->child_offset = h.offset;
+		}
 	}
 
 	template<class K>
 	void erase(K key) {
 		if (head_ptr_t th = find_(key)) {
 			auto p = h;
-			h.poffset = h.offset;
+			h.parent_offset = h.offset;
 			h.offset = th.offset;
 			erase();
 			h = p;
@@ -1560,6 +1578,45 @@ public:
 		}
 	}
 
+	//! escape string for JSON serialization
+	inline void escape_string(const char* src, string& dest) {
+		while (*src) {
+			switch (*src) {
+				case '\"':
+					dest += "\\\"";
+					break;
+				case '\\':
+					dest += "\\\\";
+					break;
+				case '\b':
+					dest += "\\b";
+					break;
+				case '\f':
+					dest += "\\f";
+					break;
+				case '\n':
+					dest += "\\n";
+					break;
+				case '\r':
+					dest += "\\r";
+					break;
+				case '\t':
+					dest += "\\t";
+					break;
+				default:
+					if ((unsigned char)*src < 0x20) {
+						char buf[7];
+						snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)*src);
+						dest += buf;
+					} else {
+						dest += *src;
+					}
+					break;
+			}
+			++src;
+		}
+	}
+
 	void serialize(string& str) {
 
 		str.resize(0);
@@ -1571,7 +1628,7 @@ public:
 			if (stack.size() && stack.top().is_obj) {
 				if (IS_STR_KEY(th->key_len_)) {
 					str += "\"";
-					str += th->get_key();
+					escape_string(th->get_key(), str);
 					str += "\":";
 				}
 				else if (th->key_len_) {
@@ -1628,7 +1685,7 @@ public:
 			}
 			else if (th->type_ == type_flag_t::str_t) {
 				str += "\"";
-				str += th->get_string();
+				escape_string(th->get_string(), str);
 				str += "\",";
 			}
 			else if (th->type_ == type_flag_t::nul_t) {
@@ -1666,7 +1723,7 @@ public:
 private:
 
 	void link_node() {
-		head_t* th = (head_t*)(data->data() + h.poffset);
+		head_t* th = (head_t*)(data->data() + h.parent_offset);
 		if (!th->content_len) {
 			h->prev_ = h.offset;
 			th->content_len = h.offset;
@@ -1682,7 +1739,8 @@ private:
 
 	void unlink_node() {
 		head_t* nth = (head_t*)(data->data() + h->next_);
-		head_t* pth = (head_t*)(data->data() + h->prev_);
+		head_t* pth = (head_t*)(data->data() + h->prev_);>	StaticJson.exe!json_value<std_allocator<char>,std_allocator<unsigned int>,std_allocator<hash_node>,int>::link_node() 行 1714	C++
+
 
 		pth->next_ = h->next_;
 		nth->prev_ = h->prev_;
@@ -1724,13 +1782,13 @@ private:
 
 	template<class K>
 	hash_node* find_node(K k) {
-		size_t hk = hash_key(k , this->h.poffset);
+		size_t hk = hash_key(k , this->h.parent_offset);
 		size_t index = hk % hash_table->size();
 		size_t next = (*hash_table)[index];
 		while (next) {
 			hash_node& next_node = (*link_table)[next - 1];
 			head_t* th = (head_t*)(data->data() + next_node.value_off);
-			if (this->h.poffset != next_node.parent || !th->keycmp(k) || th->type_ <= type_flag_t::del_t) {
+			if (this->h.parent_offset != next_node.parent || !th->keycmp(k) || th->type_ <= type_flag_t::del_t) {
 				next = next_node.next;
 				continue;
 			}
@@ -1885,7 +1943,7 @@ private:
 			return true;
 		return false;
 	}
-
+	public:
 	template<class K>
 	head_ptr_t find_(K key) {
 		if (is_hashed()) {
@@ -1904,7 +1962,7 @@ private:
 
 public:
 	inline void update_head(int off) {
-		h.update(off);
+		h.set_offset(off);
 	}
 
 	void pre_allocate(size_t base_size) {
@@ -1920,7 +1978,7 @@ public:
 	}
 
 	json_value& to_off(int off) {
-		h.update(off);
+		h.set_offset(off);
 		return *this;
 	}
 
@@ -1935,9 +1993,9 @@ public:
 			h->type_ = t;
 		}
 		else {
-			h.grow_refresh(sizeof(head_t));
+			h.set_offset_to_end_and_grow(sizeof(head_t));
 			h->type_ = t;
-			h.poffset = poff;
+			h.parent_offset = poff;
 			link_node();
 		}
 	}
@@ -1947,12 +2005,12 @@ public:
 		size_t poff = h.offset;
 		auto kl = type_len(key);
 		if (h->type_ != type_flag_t::pre_t)
-			h.grow_refresh(sizeof(head_t) + kl);
+			h.set_offset_to_end_and_grow(sizeof(head_t) + kl);
 		//add key end with '\0'
 		h->set_key(key, kl);
 
 		h->type_ = t;
-		h.poffset = poff;
+		h.parent_offset = poff;
 		
 		add_node(key, h.offset, poff);
 		link_node();
@@ -1962,13 +2020,13 @@ public:
 	void push_head_nofind(flag_t t, K key) {
 		//add head
 		auto kl = type_len(key);
-		h.grow_refresh(sizeof(head_t) + kl);
+		h.set_offset_to_end_and_grow(sizeof(head_t) + kl);
 		//add key end with '\0'
 		h->set_key(key, kl);
 
 		h->type_ = t;
 
-		add_node(key, h.offset, h.poffset);
+		add_node(key, h.offset, h.parent_offset);
 
 		link_node();
 	}
@@ -1976,11 +2034,11 @@ public:
 
 	void push_head_init() {
 		h = head_ptr_t(data, 0);
-		h.grow(sizeof(head_t));
+		h.grow_container(sizeof(head_t));
 		h->type_ = type_flag_t::obj_t;
 		h = head_ptr_t(data, sizeof(head_t));
 		//add head
-		h.grow_refresh(sizeof(head_t));
+		h.set_offset_to_end_and_grow(sizeof(head_t));
 		h->type_ = type_flag_t::pre_t;
 		h->key_len_ = 0;
 
@@ -1998,15 +2056,15 @@ public:
 	void push_head_from(flag_t t, head_ptr_t from) {
 		//add head
 		key_t kl = from->get_kl();
-		h.grow_refresh(sizeof(head_t) + kl);
+		h.set_offset_to_end_and_grow(sizeof(head_t) + kl);
 		//add key end with '\0'
 		if (IS_STR_KEY(from->key_len_)){
 			h->set_key(from->get_key());
-			add_node(from->get_key(), h.offset, h.poffset);
+			add_node(from->get_key(), h.offset, h.parent_offset);
 		}
 		else if (kl){
 			h->set_key(from->get_int_key(), kl);
-			add_node(from->get_int_key(), h.offset, h.poffset);
+			add_node(from->get_int_key(), h.offset, h.parent_offset);
 		}
 		h->type_ = t;
 
@@ -2034,7 +2092,7 @@ public:
 	template<class N>
 	inline void push_num(N num) {
 		h->type_ = num_type(num);
-		h.grow(sizeof(number_t));
+		h.grow_container(sizeof(number_t));
 		h->set_val(num);
 	}
 
@@ -2215,7 +2273,7 @@ private:
 						parser::skip_space(js);
 						ch = parser::get_cur_and_next(js);
 						json_value_t::push_head(json_value_t::type_flag_t::obj_t);
-						json_value_t::h.update(json_value_t::h.poffset);
+						json_value_t::h.set_offset(json_value_t::h.parent_offset);
 						//json_value_t::h = stack.top();
 						if (stack.size() == 0 && *js.begin) {
 							return false;
@@ -2232,7 +2290,7 @@ private:
 						parser::get_next(js);
 						parser::skip_space(js);
 						json_value_t::push_head(json_value_t::type_flag_t::arr_t);
-						json_value_t::h.update(json_value_t::h.poffset);
+						json_value_t::h.set_offset(json_value_t::h.parent_offset);
 						//json_value_t::h = stack.top();
 						if (stack.size() == 0 && *js.begin) {
 							return false;
